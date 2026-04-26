@@ -96,6 +96,112 @@ const std::vector<Entry>& table() {
         // 基础设施
         {"date",               "date",           {"date::date"}},
         {"hedley",             "hedley",         {"hedley"}},
+
+        // ==== 第二批扩展（v0.1.3+）====
+
+        // Boost 子库（除已有的 system/filesystem/asio/beast/program-options）
+        {"boost-thread",          "Boost",       {"Boost::thread"}},
+        {"boost-iostreams",       "Boost",       {"Boost::iostreams"}},
+        {"boost-test",            "Boost",       {"Boost::unit_test_framework"}},
+        {"boost-regex",           "Boost",       {"Boost::regex"}},
+        {"boost-date-time",       "Boost",       {"Boost::date_time"}},
+        {"boost-chrono",          "Boost",       {"Boost::chrono"}},
+        {"boost-uuid",            "Boost",       {"Boost::uuid"}},
+        {"boost-locale",          "Boost",       {"Boost::locale"}},
+        {"boost-property-tree",   "Boost",       {"Boost::property_tree"}},
+        {"boost-serialization",   "Boost",       {"Boost::serialization"}},
+        {"boost-url",             "Boost",       {"Boost::url"}},
+        {"boost-log",             "Boost",       {"Boost::log"}},
+
+        // 网络 / HTTP
+        {"cpp-httplib",           "httplib",                  {"httplib::httplib"}},
+        {"cpr",                   "cpr",                      {"cpr::cpr"}},
+        {"cppzmq",                "cppzmq",                   {"cppzmq"}},
+        {"mongoose",              "unofficial-mongoose",      {"unofficial::mongoose::mongoose"}},
+        {"drogon",                "Drogon",                   {"Drogon::Drogon"}},
+        {"crow",                  "Crow",                     {"Crow::Crow"}},
+        {"oatpp",                 "oatpp",                    {"oatpp::oatpp"}},
+        {"libwebsockets",         "libwebsockets",            {"websockets"}},
+
+        // DB
+        {"hiredis",               "hiredis",                  {"hiredis::hiredis"}},
+        {"libpqxx",               "libpqxx",                  {"libpqxx::pqxx"}},
+        {"mysql-connector-cpp",   "unofficial-mysql-connector-cpp", {"unofficial::mysql-connector-cpp::connector"}},
+        {"sqlite-orm",            "sqlite_orm",               {"sqlite_orm::sqlite_orm"}},
+        {"mongo-cxx-driver",      "mongocxx",                 {"mongo::mongocxx_shared"}},
+
+        // 日志
+        {"glog",                  "glog",                     {"glog::glog"}},
+        {"easyloggingpp",         "easyloggingpp",            {"easyloggingpp"}},
+        {"plog",                  "plog",                     {"plog::plog"}},
+
+        // 加密 / 安全
+        {"libsodium",             "unofficial-sodium",        {"unofficial-sodium::sodium"}},
+        {"mbedtls",               "MbedTLS",                  {"MbedTLS::mbedtls"}},
+        {"botan",                 "Botan",                    {"Botan::Botan"}},
+        {"cryptopp",              "cryptopp",                 {"cryptopp::cryptopp"}},
+
+        // 压缩
+        {"brotli",                "unofficial-brotli",        {"unofficial::brotli::brotlidec", "unofficial::brotli::brotlienc"}},
+        {"snappy",                "Snappy",                   {"Snappy::snappy"}},
+
+        // XML / parser
+        {"expat",                 "expat",                    {"expat::expat"}},
+        {"libxml2",               "LibXml2",                  {"LibXml2::LibXml2"}},
+        {"pugixml",               "pugixml",                  {"pugixml::pugixml"}},
+        {"rapidxml",              "rapidxml",                 {"rapidxml"}},
+
+        // 音频
+        {"openal-soft",           "OpenAL",                   {"OpenAL::OpenAL"}},
+        {"miniaudio",             "miniaudio",                {"miniaudio::miniaudio"}},
+        {"libsndfile",            "SndFile",                  {"SndFile::sndfile"}},
+
+        // 数学 / ML
+        {"armadillo",             "Armadillo",                {"armadillo"}},
+        {"dlib",                  "dlib",                     {"dlib::dlib"}},
+        {"flann",                 "flann",                    {"flann::flann"}},
+
+        // JSON / 序列化（除已有 nlohmann-json）
+        {"simdjson",              "simdjson",                 {"simdjson::simdjson"}},
+        {"rapidjson",             "RapidJSON",                {"rapidjson"}},
+        {"cereal",                "cereal",                   {"cereal::cereal"}},
+        {"msgpack-cxx",           "msgpack-cxx",              {"msgpack-cxx"}},
+
+        // CLI / 终端 UI（除已有 cli11/cxxopts）
+        {"argparse",              "argparse",                 {"argparse::argparse"}},
+        {"tabulate",              "tabulate",                 {"tabulate::tabulate"}},
+        {"indicators",            "indicators",               {"indicators::indicators"}},
+        {"ftxui",                 "ftxui",                    {"ftxui::component", "ftxui::dom", "ftxui::screen"}},
+        {"termcolor",             "termcolor",                {"termcolor::termcolor"}},
+
+        // 并发 / 任务
+        {"concurrentqueue",       "unofficial-concurrentqueue", {"unofficial::concurrentqueue::concurrentqueue"}},
+        {"taskflow",              "Taskflow",                 {"Taskflow::Taskflow"}},
+
+        // 编译期工具
+        {"magic-enum",            "magic_enum",               {"magic_enum::magic_enum"}},
+        {"ctre",                  "ctre",                     {"ctre::ctre"}},
+        {"frozen",                "frozen",                   {"frozen::frozen"}},
+
+        // I/O 解析
+        {"scnlib",                "scn",                      {"scn::scn"}},
+        {"cpp-peglib",            "cpp-peglib",               {"cpp-peglib::cpp-peglib"}},
+        {"tao-pegtl",             "pegtl",                    {"taocpp::pegtl"}},
+
+        // 资产 / 引擎
+        {"assimp",                "assimp",                   {"assimp::assimp"}},
+        {"bullet3",               "Bullet",                   {"BulletDynamics", "BulletCollision", "LinearMath"}},
+        {"box2d",                 "box2d",                    {"box2d::box2d"}},
+        {"lua",                   "Lua",                      {"lua"}},
+        {"sol2",                  "sol2",                     {"sol2::sol2"}},
+
+        // 哈希 / 字符串
+        {"xxhash",                "unofficial-xxhash",        {"unofficial::xxhash::xxhash"}},
+        {"utfcpp",                "utf8cpp",                  {"utf8cpp"}},
+
+        // 反汇编 / 调试
+        {"capstone",              "capstone",                 {"capstone::capstone"}},
+        {"zydis",                 "Zydis",                    {"Zydis::Zydis"}},
     };
     return v;
 }

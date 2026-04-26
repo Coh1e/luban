@@ -1,6 +1,6 @@
 # Commands overview
 
-Luban has 16 commands, organized into four groups.
+Luban has 17 commands, organized into four groups.
 
 ## Toolchain & environment (one-time per machine)
 
@@ -36,6 +36,7 @@ Luban has 16 commands, organized into four groups.
 | [`luban describe [--json]`](./describe.md) | Dump system + project state for IDEs / scripts |
 | [`luban shim`](./shim.md) | Regenerate `<data>/bin/` shims (text + .exe; repair tool) |
 | [`luban self {update,uninstall}`](./self.md) | Self-update binary, or uninstall luban completely |
+| [`luban completion <shell>`](./completion.md) | Generate shell completion script (clink today; bash/pwsh/zsh future) |
 
 ## Global flags
 

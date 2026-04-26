@@ -16,6 +16,7 @@ void register_search();
 void register_run();
 void register_describe();
 void register_self();
+void register_completion();
 }  // namespace luban::commands
 
 int main(int argc, char** argv) {
@@ -34,5 +35,6 @@ int main(int argc, char** argv) {
     luban::commands::register_run();
     luban::commands::register_describe();
     luban::commands::register_self();
+    luban::commands::register_completion();
     return luban::cli::dispatch(argc, argv);
 }

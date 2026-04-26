@@ -1,6 +1,6 @@
 # 命令清单
 
-luban 共 16 个 verb，分 4 组。
+luban 共 17 个 verb，分 4 组。
 
 ## 工具链 / 环境（每台机器一次性）
 
@@ -36,6 +36,7 @@ luban 共 16 个 verb，分 4 组。
 | [`luban describe [--json]` →](https://luban.coh1e.com/commands/describe.html) | dump 系统 + 项目状态（IDE / scripts 用） |
 | [`luban shim` →](https://luban.coh1e.com/commands/shim.html) | 重生成 `<data>/bin/` shim（文本 + .exe；修复用） |
 | [`luban self {update,uninstall}` →](https://luban.coh1e.com/commands/self.html) | 自更新二进制 / 完全卸载 luban |
+| [`luban completion <shell>` →](https://luban.coh1e.com/commands/completion.html) | 生成 shell 补全脚本（目前仅 clink；bash/pwsh/zsh 待支持） |
 
 ## 全局 flag
 
