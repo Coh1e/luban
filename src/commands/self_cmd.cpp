@@ -35,7 +35,7 @@ using nlohmann::json;
 // 与 cli.cpp 里的 kVersion 同步——为避免 cross-TU coupling，复读 luban -V 输出
 // 比 #define 干净：但实际就 hard-code 了一份镜像，每次 release 都要同步。
 // 比对 trade-off：少一个 extern global vs release 多记一处。这里取后者。
-constexpr std::string_view kCurrentVersion = "0.1.1";
+constexpr std::string_view kCurrentVersion = "0.1.2";
 
 constexpr const char* kReleaseApi = "https://api.github.com/repos/Coh1e/luban/releases/latest";
 

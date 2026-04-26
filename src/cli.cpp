@@ -11,7 +11,7 @@ namespace luban::cli {
 
 namespace {
 
-constexpr std::string_view kVersion = "0.1.1";
+constexpr std::string_view kVersion = "0.1.2";
 
 std::vector<Subcommand>& registry() {
     static std::vector<Subcommand> v;
