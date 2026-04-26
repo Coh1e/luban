@@ -98,7 +98,17 @@ jobs:
           path: build/release/luban.exe
           retention-days: 30
 
-      # ---- On tag push: upload to release ----
+      # ---- On tag push: SHA256SUMS + upload to release ----
+      - name: Generate SHA256SUMS
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          cd build/release
+          $hash = (Get-FileHash -Algorithm SHA256 luban.exe).Hash.ToLower()
+          "$hash  luban.exe" | Out-File -Encoding ascii SHA256SUMS
+          Write-Host "Computed SHA256SUMS:"
+          Get-Content SHA256SUMS
+
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -106,4 +116,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
-          gh release upload $tag build/release/luban.exe --clobber
+          gh release upload $tag build/release/luban.exe build/release/SHA256SUMS --clobber

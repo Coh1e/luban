@@ -38,6 +38,7 @@ set(LUBAN_SOURCES
     src/commands/add.cpp
     src/commands/target_cmd.cpp
     src/commands/which_search.cpp
+    src/commands/describe.cpp
 )
 
 add_executable(luban ${LUBAN_SOURCES})
@@ -68,4 +69,21 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         NOMINMAX
     )
+endif()
+
+# ---- luban-shim.exe : tiny native exe proxy (rustup-style) ----
+# Hard-linked into <data>/bin/<alias>.exe for every alias. Reads its own
+# filename + .shim-table.json sibling to discover target exe, then
+# CreateProcessW. Static-linked, ~200 KB.
+add_executable(luban-shim src/shim_exe/main.cpp)
+target_include_directories(luban-shim PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+
+if(NOT MSVC)
+    target_compile_options(luban-shim PRIVATE -Wall -Wextra)
+    target_link_options(luban-shim PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+if(WIN32)
+    target_compile_definitions(luban-shim PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(luban-shim PRIVATE shell32)
 endif()
