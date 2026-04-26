@@ -5,7 +5,7 @@ Scaffold a new C++ project.
 ## Synopsis
 
 ```text
-luban new {app|lib} <name> [--at <dir>] [--no-build]
+luban new {app|lib} <name> [--at <dir>] [--no-build] [--target {native|wasm}]
 ```
 
 ## What you get
@@ -40,6 +40,7 @@ luban new {app|lib} <name> [--at <dir>] [--no-build]
 |---|---|
 | `--at <dir>` | Parent directory for the new project (default: cwd) |
 | `--no-build` | Skip the initial build (faster scaffold; clangd will be unhappy until you `luban build` manually) |
+| `--target wasm` | Use the WASM scaffold instead of native — emscripten-friendly `CMakePresets.json` + `luban.cmake`. Requires `luban setup --with emscripten`. See [WASM workflow](../workflows/wasm.md). |
 
 ## After `luban new`
 

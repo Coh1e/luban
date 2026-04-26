@@ -8,9 +8,11 @@
 Windows-first **C++ toolchain manager + cmake/vcpkg auxiliary frontend**.
 One static-linked binary (`luban.exe` ~3 MB), zero UAC, XDG-first directories.
 - `luban setup` installs LLVM-MinGW + cmake + ninja + mingit + vcpkg
+- `luban setup --with emscripten` opt-in to C++→WASM (pulls node via depends)
 - `luban env --user` adds `<data>/bin/` to HKCU PATH (rustup-style)
 - `luban new app foo` + `luban add fmt` + `luban build` → hello-world with
   vcpkg deps, with **zero** `CMakeLists.txt` editing required
+- `luban new app foo --target=wasm` + `luban build` → .html/.js/.wasm output
 - `luban.cmake` (a generated standard cmake module) is the only thing luban
   itself "owns" inside a project — and it's git-tracked, so the project
   builds on machines that don't have luban installed.
@@ -111,8 +113,13 @@ Edit `src/lib_targets.cpp` table. Each row: `{port, find_package_name,
    `extract_dir` if archive uses a wrapper, and `bin: [[<rel>, <alias>], ...]`.
 2. Enable it in `manifests_seed/selection.json` if it should be installed
    by default.
-3. If the component needs post-extract setup (rare; vcpkg is the only
-   current case), add a special-case in `src/component.cpp` keyed by name.
+3. If the component needs post-extract setup (special-cased in
+   `src/component.cpp` keyed by name): vcpkg → bootstrap-vcpkg.bat;
+   emscripten → write `<install>/emscripten/.emscripten` config with
+   LLVM_ROOT/BINARYEN_ROOT/EMSCRIPTEN_ROOT/NODE_JS pointing at registry-resolved paths.
+4. If the component depends on another (e.g., emscripten → node), declare
+   `"depends": ["node"]` in the manifest. `setup.cpp::expand_depends`
+   does DFS post-order so deps install first.
 
 ### Cut a release vX.Y.Z
 

@@ -140,9 +140,26 @@ int run_new(const cli::ParsedArgs& args) {
         return 2;
     }
 
-    fs::path src = find_template_root("app");
+    // --target=wasm picks templates/wasm-app/ (sets emscripten-friendly luban.cmake +
+    // CMakePresets). Default = native (templates/app/).
+    std::string target = "native";
+    {
+        auto it = args.opts.find("target");
+        if (it != args.opts.end() && !it->second.empty()) target = it->second;
+    }
+    std::string template_kind;
+    if (target == "native") {
+        template_kind = "app";
+    } else if (target == "wasm") {
+        template_kind = "wasm-app";
+    } else {
+        log::errf("unknown --target '{}'. Supported: native, wasm.", target);
+        return 2;
+    }
+
+    fs::path src = find_template_root(template_kind);
     if (src.empty()) {
-        log::err("template not found (looked relative to luban.exe and repo root)");
+        log::errf("template '{}' not found (looked relative to luban.exe and repo root)", template_kind);
         return 1;
     }
 
@@ -168,6 +185,9 @@ int run_new(const cli::ParsedArgs& args) {
     bool no_build = false;
     auto it_nb = args.flags.find("no-build");
     if (it_nb != args.flags.end() && it_nb->second) no_build = true;
+
+    // wasm target's auto-build needs `emcmake cmake --preset wasm` plumbing
+    // which build_project handles when it sees the wasm preset shape. Done.
 
     if (no_build) {
         log::infof("next: cd {} && luban build", name);
@@ -203,7 +223,7 @@ void register_new() {
         "\n"
         "  By default, runs `luban build` once after scaffolding so\n"
         "  compile_commands.json is ready for clangd. Pass --no-build to skip.";
-    c.opts = {{"at", "."}};
+    c.opts = {{"at", "."}, {"target", "native"}};
     c.flags = {"no-build"};
     c.n_positional = 2;
     c.positional_names = {"kind", "name"};
@@ -212,6 +232,7 @@ void register_new() {
         "luban new lib mylib\tSame, but lib instead of executable",
         "luban new app foo --no-build\tSkip the initial build",
         "luban new app foo --at C:\\projects\tParent directory override",
+        "luban new app foo --target wasm\tEmscripten C++ \xe2\x86\x92 .html/.js/.wasm output (requires `luban setup --with emscripten`)",
     };
     c.run = run_new;
     cli::register_subcommand(std::move(c));

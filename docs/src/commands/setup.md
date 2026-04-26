@@ -5,7 +5,9 @@ Install all enabled toolchain components. **Run this once per machine.**
 ## Synopsis
 
 ```text
-luban setup [--only <name>[,<name>...]] [--force] [--dry-run] [--refresh-buckets]
+luban setup [--only <name>[,<name>...]] [--with <name>[,<name>...]]
+            [--without <name>[,<name>...]] [--force] [--dry-run]
+            [--refresh-buckets]
 ```
 
 ## Default behavior
@@ -28,11 +30,29 @@ Total: ~280 MB on disk after extraction (sum of ~50 MB compressed downloads in `
 
 ### `--only <name>[,<name>...]`
 
-Install only the named component(s). Comma-separated list. **Overrides** the `enabled` flag in selection.json — useful for installing components disabled by default (like `vcpkg` which has its own overlay).
+Install only the named component(s). Comma-separated list. **Overrides** the `enabled` flag in selection.json — useful for installing components disabled by default (like `vcpkg` which has its own overlay). **This run only — does not persist.**
 
 ```bat
 luban setup --only vcpkg
 luban setup --only cmake,ninja
+```
+
+### `--with <name>[,<name>...]`
+
+Enable + install named component(s) AND **persist** into `<config>/luban/selection.json` so future `luban setup` (with no flags) re-applies. Recursively pulls in `depends:` from each manifest (DFS post-order — deps installed before dependents).
+
+```bat
+luban setup --with emscripten   :: also pulls in node via depends
+luban setup --with node,zig     :: opt-in to multiple
+```
+
+### `--without <name>[,<name>...]`
+
+Symmetric to `--with`: disables in selection.json AND removes from disk (toolchain dir + shims). Idempotent — silent if the component is not currently installed.
+
+```bat
+luban setup --without emscripten      :: keeps node (unless also --without node)
+luban setup --without emscripten,node :: full WASM cleanup
 ```
 
 ### `--force`

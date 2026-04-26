@@ -9,8 +9,12 @@
 #include <system_error>
 #include <vector>
 
+#include <fstream>
+#include <sstream>
+
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
+#include "json.hpp"
 #include "../log.hpp"
 #include "../paths.hpp"
 #include "../proc.hpp"
@@ -70,17 +74,58 @@ fs::path copy_compile_commands(const fs::path& project, const std::string& prese
     return dst;
 }
 
+// 项目 CMakePresets.json 是否声明了 wasm preset。`luban new --target=wasm`
+// 生成的项目里有；普通项目没有。
+bool has_wasm_preset(const fs::path& project) {
+    fs::path p = project / "CMakePresets.json";
+    std::error_code ec;
+    if (!fs::exists(p, ec)) return false;
+    std::ifstream in(p);
+    std::ostringstream ss; ss << in.rdbuf();
+    nlohmann::json doc;
+    try { doc = nlohmann::json::parse(ss.str()); } catch (...) { return false; }
+    if (!doc.is_object() || !doc.contains("configurePresets")) return false;
+    for (auto& cp : doc["configurePresets"]) {
+        if (cp.is_object() && cp.contains("name") && cp["name"].is_string()
+            && cp["name"].get<std::string>() == "wasm") return true;
+    }
+    return false;
+}
+
 // 自动选 preset：
 //   - 用户显式 --preset xxx → 直接用
+//   - 项目有 wasm preset → "wasm" (emscripten 路径)
 //   - 项目 vcpkg.json 有 deps → "default"（vcpkg toolchain）
 //   - 否则 → "no-vcpkg"（hello-world fast path，无需 VCPKG_ROOT）
 std::string pick_preset(const fs::path& project, const std::string& explicit_preset) {
     if (!explicit_preset.empty() && explicit_preset != "auto") return explicit_preset;
+    if (has_wasm_preset(project)) return "wasm";
     fs::path vcpkg_json = project / "vcpkg.json";
     std::error_code ec;
     if (!fs::exists(vcpkg_json, ec)) return "default";
     auto m = vcpkg_manifest::load(vcpkg_json);
     return m.dependencies.empty() ? "no-vcpkg" : "default";
+}
+
+// emcmake.bat path from the installed emscripten component. Returns empty
+// if emscripten not installed (caller surfaces a friendlier error).
+std::string emcmake_bat() {
+    auto recs = registry::load_installed();
+    auto it = recs.find("emscripten");
+    if (it == recs.end()) return "";
+    fs::path root = paths::toolchain_dir(it->second.toolchain_dir);
+    for (auto& [alias, rel] : it->second.bins) {
+        if (alias == "emcmake") {
+            std::string norm = rel;
+            for (auto& c : norm) if (c == '/' || c == '\\') c = static_cast<char>(fs::path::preferred_separator);
+            return (root / norm).string();
+        }
+    }
+    return "";
+}
+
+bool is_wasm_preset(const std::string& p) {
+    return p == "wasm" || p == "wasm-debug";
 }
 
 int run_build(const cli::ParsedArgs& args) {
@@ -100,8 +145,23 @@ int run_build(const cli::ParsedArgs& args) {
 
     auto env_overrides = env_snapshot::apply_to({});
 
-    // Configure
-    int rc = run_cmd({cmake, "--preset", preset}, project, env_overrides);
+    // Configure. For wasm presets we wrap with emcmake.bat so it injects the
+    // emscripten cmake toolchain file before invoking cmake. After the first
+    // configure, the toolchain file is cached in CMakeCache, so subsequent
+    // builds don't need emcmake.
+    std::vector<std::string> configure_cmd;
+    if (is_wasm_preset(preset)) {
+        std::string emcmake = emcmake_bat();
+        if (emcmake.empty()) {
+            log::errf("preset '{}' needs emscripten, but it is not installed.", preset);
+            log::err("run: luban setup --with emscripten");
+            return 2;
+        }
+        configure_cmd = {emcmake, cmake, "--preset", preset};
+    } else {
+        configure_cmd = {cmake, "--preset", preset};
+    }
+    int rc = run_cmd(configure_cmd, project, env_overrides);
     if (rc != 0) {
         log::errf("cmake --preset {} returned {}", preset, rc);
         return rc;
@@ -142,6 +202,7 @@ void register_build() {
         "  so clangd / VS Code C/C++ extension auto-find it.\n"
         "\n"
         "  Preset auto-selection (default --preset=auto):\n"
+        "    - 'wasm' preset present    → preset 'wasm'      (wraps cmake with emcmake)\n"
         "    - vcpkg.json has deps      → preset 'default'   (uses VCPKG_ROOT)\n"
         "    - vcpkg.json deps empty    → preset 'no-vcpkg'  (no toolchain file)\n"
         "  Override with --preset=release, --preset=default, etc.";

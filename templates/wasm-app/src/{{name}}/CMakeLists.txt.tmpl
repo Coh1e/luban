@@ -1,0 +1,9 @@
+add_executable({{name}} main.cpp)
+luban_apply({{name}})
+
+# Result: build/wasm/src/{{name}}/{{name}}.html + .js + .wasm
+# Open via:
+#   emrun build/wasm/src/{{name}}/{{name}}.html
+#
+# Or any static-file webserver:
+#   cd build/wasm/src/{{name}} && python -m http.server

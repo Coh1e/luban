@@ -117,6 +117,70 @@ Selection load(bool deploy_seed) {
     return sel;
 }
 
+namespace {
+
+json entry_to_json(const Entry& e) {
+    json j = json::object();
+    j["name"] = e.name;
+    j["enabled"] = e.enabled;
+    if (!e.note.empty()) j["_why"] = e.note;
+    return j;
+}
+
+}  // namespace
+
+void save(const Selection& sel) {
+    json doc = json::object();
+    doc["_comment"] = "Luban toolchain selection. Edited by `luban setup --with` / `--without`. See manifests_seed/selection.json for the original seed.";
+    doc["schema"] = 1;
+    doc["components"] = json::array();
+    for (auto& e : sel.components) doc["components"].push_back(entry_to_json(e));
+    doc["extras"] = json::array();
+    for (auto& e : sel.extras) doc["extras"].push_back(entry_to_json(e));
+
+    fs::path target = paths::selection_json_path();
+    std::error_code ec;
+    fs::create_directories(target.parent_path(), ec);
+    fs::path tmp = target;
+    tmp += ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        std::string text = doc.dump(2);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    }
+    fs::rename(tmp, target, ec);
+}
+
+bool enable(Selection& sel, const std::string& name) {
+    for (auto* list : {&sel.components, &sel.extras}) {
+        for (auto& e : *list) {
+            if (e.name == name) {
+                if (e.enabled) return false;
+                e.enabled = true;
+                return true;
+            }
+        }
+    }
+    Entry fresh;
+    fresh.name = name;
+    fresh.enabled = true;
+    sel.extras.push_back(std::move(fresh));
+    return true;
+}
+
+bool disable(Selection& sel, const std::string& name) {
+    for (auto* list : {&sel.components, &sel.extras}) {
+        for (auto& e : *list) {
+            if (e.name == name) {
+                if (!e.enabled) return false;
+                e.enabled = false;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 std::vector<fs::path> deploy_overlays() {
     fs::path seed = seed_root();
     fs::path overlay = paths::overlay_dir();

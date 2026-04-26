@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "wasm",
+      "displayName": "WASM — Emscripten via emcmake (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "wasm-debug",
+      "inherits": "wasm",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "wasm",       "configurePreset": "wasm" },
+    { "name": "wasm-debug", "configurePreset": "wasm-debug" }
+  ]
+}

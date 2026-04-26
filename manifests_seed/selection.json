@@ -15,6 +15,10 @@
     {"name": "vcpkg",      "enabled": true,
      "_why": "C++ project deps. Overlay manifest at manifests_seed/vcpkg.json bypasses Scoop's installer.script; component.cpp runs bootstrap-vcpkg.bat once after extract."},
     {"name": "zig",        "enabled": false,
-     "_why": "optional: enables `luban build --target <linux-triple>` via `zig cc`"}
+     "_why": "optional: enables `luban build --target <linux-triple>` via `zig cc`"},
+    {"name": "node",       "enabled": false,
+     "_why": "Node.js LTS. Required by emscripten; also useful standalone. Opt in via `luban setup --with node`."},
+    {"name": "emscripten", "enabled": false,
+     "_why": "C++ → WebAssembly toolchain. Pulls node automatically via depends. Opt in via `luban setup --with emscripten`."}
   ]
 }

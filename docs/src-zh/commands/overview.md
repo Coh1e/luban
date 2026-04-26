@@ -38,6 +38,14 @@ luban 共 17 个 verb，分 4 组。
 | [`luban self {update,uninstall}` →](https://luban.coh1e.com/commands/self.html) | 自更新二进制 / 完全卸载 luban |
 | [`luban completion <shell>` →](https://luban.coh1e.com/commands/completion.html) | 生成 shell 补全脚本（目前仅 clink；bash/pwsh/zsh 待支持） |
 
+## 工作流（v0.1.3+ 新增）
+
+| 命令组合 | 作用 |
+|---|---|
+| `luban setup --with emscripten` | 装 emscripten + node（自动 depends 链路）。开 C++ → WASM 之路。详见 [WASM workflow →](https://luban.coh1e.com/workflows/wasm.html) |
+| `luban new app foo --target=wasm` | wasm 项目脚手架（emscripten preset + .html/.js/.wasm 输出） |
+| `luban setup --without X` | 反向：禁用 + 卸载组件（与 `--with` 对称） |
+
 ## 全局 flag
 
 放在子命令前：

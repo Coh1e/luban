@@ -33,6 +33,7 @@
 - [First-time machine setup](./workflows/first-run.md)
 - [Add a vcpkg library](./workflows/add-vcpkg-dep.md)
 - [Multi-target project](./workflows/multi-target.md)
+- [C++ → WebAssembly](./workflows/wasm.md)
 - [IDE integration (Neovim, VS Code)](./workflows/ide-integration.md)
 - [Reproducing a luban project on another machine](./workflows/reproduce.md)
 
