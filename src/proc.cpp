@@ -6,6 +6,13 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "util/win.hpp"
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <cerrno>
+#include <cstring>
+extern char** environ;
 #endif
 
 namespace luban::proc {
@@ -127,8 +134,46 @@ int run(const std::vector<std::string>& cmd,
     CloseHandle(pi.hProcess);
     return static_cast<int>(code);
 #else
-    (void)cmd; (void)cwd; (void)env_overrides;
-    return -1;  // POSIX wired up in M2.
+    // POSIX path: fork + chdir + apply env overrides + execvp + wait.
+    // Uses posix_spawn-style direct fork/exec — single-threaded, simpler than spawn.
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+
+    if (pid == 0) {
+        // child
+        if (!cwd.empty()) {
+            if (chdir(cwd.c_str()) != 0) {
+                std::fprintf(stderr, "luban: chdir(%s) failed: %s\n",
+                             cwd.c_str(), std::strerror(errno));
+                _exit(127);
+            }
+        }
+        // Apply env overrides on top of inherited env. Simple model: setenv
+        // each key. Doesn't unset keys not in overrides — caller can pass
+        // empty value to clear if needed (we don't use that semantic today).
+        for (auto& [k, v] : env_overrides) {
+            setenv(k.c_str(), v.c_str(), /*overwrite=*/1);
+        }
+        // build argv (NULL-terminated)
+        std::vector<char*> argv;
+        argv.reserve(cmd.size() + 1);
+        for (auto& s : cmd) argv.push_back(const_cast<char*>(s.c_str()));
+        argv.push_back(nullptr);
+        execvp(argv[0], argv.data());
+        // execvp returned → failed
+        std::fprintf(stderr, "luban: execvp(%s) failed: %s\n",
+                     argv[0], std::strerror(errno));
+        _exit(127);
+    }
+
+    // parent: wait
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return -1;
 #endif
 }
 
