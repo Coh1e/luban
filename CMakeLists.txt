@@ -39,6 +39,7 @@ set(LUBAN_SOURCES
     src/commands/target_cmd.cpp
     src/commands/which_search.cpp
     src/commands/describe.cpp
+    src/commands/self_cmd.cpp
 )
 
 add_executable(luban ${LUBAN_SOURCES})

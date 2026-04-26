@@ -25,6 +25,7 @@
 - [`luban which`](./commands/which.md)
 - [`luban describe`](./commands/describe.md)
 - [`luban shim`](./commands/shim.md)
+- [`luban self`](./commands/self.md)
 
 # Workflows
 
