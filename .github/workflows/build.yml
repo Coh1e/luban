@@ -115,15 +115,27 @@ jobs:
           Write-Host "Computed SHA256SUMS:"
           Get-Content SHA256SUMS
 
-      - name: Upload to release
+      - name: Upload to release (create if missing)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
-          gh release upload $tag `
+          # Try to create release with assets; if it already exists, fall through
+          # to upload --clobber. Either path leaves the release with up-to-date
+          # binaries + SHA256SUMS.
+          gh release create $tag `
             build/release/luban.exe `
             build/release/luban-shim.exe `
             build/release/SHA256SUMS `
-            --clobber
+            --title "luban $tag" `
+            --generate-notes 2>&1 | Out-Host
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Release $tag exists; uploading with --clobber"
+              gh release upload $tag `
+                build/release/luban.exe `
+                build/release/luban-shim.exe `
+                build/release/SHA256SUMS `
+                --clobber
+          }
