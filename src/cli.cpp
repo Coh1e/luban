@@ -128,6 +128,20 @@ ParsedArgs parse_subargs(const Subcommand& c, std::span<char*> args, bool& help_
     for (const auto& f : c.flags) out.flags[f] = false;
     for (const auto& [k, v] : c.opts) out.opts[k] = v;
 
+    // forward_rest: subcommand wants all argv after itself as positional, verbatim.
+    // Used by `luban run <cmd> [args...]` so flags meant for the child cmd
+    // (e.g. `--version`) don't get parsed by luban's CLI.
+    // Only `luban run --help` (single arg, no other words) prints luban's help.
+    if (c.forward_rest) {
+        if (args.size() == 1 && (args[0] == std::string_view("--help") ||
+                                 args[0] == std::string_view("-h"))) {
+            help_wanted = true;
+            return out;
+        }
+        for (auto* a : args) out.positional.emplace_back(a);
+        return out;
+    }
+
     for (size_t i = 0; i < args.size(); ++i) {
         std::string_view a = args[i];
         if (a == "--help" || a == "-h") { help_wanted = true; continue; }
