@@ -19,7 +19,11 @@
 - [`luban add`](./commands/add.md)
 - [`luban remove`](./commands/remove.md)
 - [`luban sync`](./commands/sync.md)
+- [`luban search`](./commands/search.md)
 - [`luban target`](./commands/target.md)
+- [`luban run`](./commands/run.md)
+- [`luban which`](./commands/which.md)
+- [`luban describe`](./commands/describe.md)
 - [`luban shim`](./commands/shim.md)
 
 # Workflows

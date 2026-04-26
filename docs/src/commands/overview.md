@@ -1,6 +1,6 @@
 # Commands overview
 
-Luban has 11 commands, organized into four groups.
+Luban has 15 commands, organized into four groups.
 
 ## Toolchain & environment (one-time per machine)
 
@@ -24,13 +24,17 @@ Luban has 11 commands, organized into four groups.
 | [`luban add <pkg>[@version]`](./add.md) | Edit `vcpkg.json` + regenerate `luban.cmake` (find_package + link auto-wired) |
 | [`luban remove <pkg>`](./remove.md) | Reverse `luban add` |
 | [`luban sync`](./sync.md) | Re-read `vcpkg.json` + `luban.toml`, regenerate `luban.cmake` |
+| [`luban search <pattern>`](./search.md) | Search vcpkg ports (wraps `vcpkg search`) |
 
 ## Advanced / diagnostic
 
 | Command | What it does |
 |---|---|
 | [`luban doctor`](./doctor.md) | Report directories, installed components, tools on PATH |
-| [`luban shim`](./shim.md) | Regenerate `<data>/bin/` shims (repair tool) |
+| [`luban run <cmd> [args...]`](./run.md) | uv-style activate + exec; runs cmd with luban env |
+| [`luban which <alias>`](./which.md) | Print absolute exe path that an alias resolves to |
+| [`luban describe [--json]`](./describe.md) | Dump system + project state for IDEs / scripts |
+| [`luban shim`](./shim.md) | Regenerate `<data>/bin/` shims (text + .exe; repair tool) |
 
 ## Global flags
 
