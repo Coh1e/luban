@@ -95,7 +95,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: luban-${{ github.sha }}
-          path: build/release/luban.exe
+          path: |
+            build/release/luban.exe
+            build/release/luban-shim.exe
           retention-days: 30
 
       # ---- On tag push: SHA256SUMS + upload to release ----
@@ -104,8 +106,12 @@ jobs:
         shell: pwsh
         run: |
           cd build/release
-          $hash = (Get-FileHash -Algorithm SHA256 luban.exe).Hash.ToLower()
-          "$hash  luban.exe" | Out-File -Encoding ascii SHA256SUMS
+          $sums = ""
+          foreach ($f in 'luban.exe', 'luban-shim.exe') {
+              $hash = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+              $sums += "$hash  $f`n"
+          }
+          $sums | Out-File -Encoding ascii SHA256SUMS -NoNewline
           Write-Host "Computed SHA256SUMS:"
           Get-Content SHA256SUMS
 
@@ -116,4 +122,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
-          gh release upload $tag build/release/luban.exe build/release/SHA256SUMS --clobber
+          gh release upload $tag `
+            build/release/luban.exe `
+            build/release/luban-shim.exe `
+            build/release/SHA256SUMS `
+            --clobber
