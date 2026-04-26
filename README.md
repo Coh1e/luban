@@ -1,7 +1,7 @@
 # Luban (鲁班)
 
-[![docs](https://img.shields.io/badge/docs-luban.cho1e.com-blue)](https://luban.cho1e.com/)
-[![api](https://img.shields.io/badge/api-luban.cho1e.com%2Fapi-green)](https://luban.cho1e.com/api/)
+[![docs](https://img.shields.io/badge/docs-luban.coh1e.com-blue)](https://luban.coh1e.com/)
+[![api](https://img.shields.io/badge/api-luban.coh1e.com%2Fapi-green)](https://luban.coh1e.com/api/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend.
@@ -15,8 +15,8 @@ luban add fmt && luban build
 
 ## Documentation
 
-- **User manual** → [luban.cho1e.com](https://luban.cho1e.com/) (mdBook, narrative)
-- **Contributor reference** → [luban.cho1e.com/api](https://luban.cho1e.com/api/) (Doxygen)
+- **User manual** → [luban.coh1e.com](https://luban.coh1e.com/) (mdBook, narrative)
+- **Contributor reference** → [luban.coh1e.com/api](https://luban.coh1e.com/api/) (Doxygen)
 - **Source** → this repo
 
 ## License

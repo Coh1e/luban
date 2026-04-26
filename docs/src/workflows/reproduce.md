@@ -32,7 +32,7 @@ This is why **`luban.cmake` is git-tracked** — it makes luban an *optional* co
 
 ```bat
 :: install luban (one binary, one URL):
-curl -O https://luban.cho1e.com/luban.exe
+curl -O https://luban.coh1e.com/luban.exe
 
 luban setup
 luban env --user

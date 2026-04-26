@@ -62,4 +62,4 @@ jobs:
           # Cloudflare Pages connects to this repo + branch directly,
           # OR you can point CF Pages at the gh-pages branch root.
           force_orphan: true
-          cname: luban.cho1e.com   # remove if you don't own the domain
+          cname: luban.coh1e.com   # remove if you don't own the domain
