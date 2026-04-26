@@ -46,6 +46,7 @@
 
 # Architecture
 
+- [Design summary (read me first)](./architecture/design.md)
 - [Design philosophy](./architecture/philosophy.md)
 - [Two-tier dependency model](./architecture/two-tier-deps.md)
 - [Why no IR, why luban.cmake](./architecture/why-cmake-module.md)

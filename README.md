@@ -3,6 +3,7 @@
 [![docs](https://img.shields.io/badge/docs-luban.coh1e.com-blue)](https://luban.coh1e.com/)
 [![api](https://img.shields.io/badge/api-luban.coh1e.com%2Fapi-green)](https://luban.coh1e.com/api/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![中文](https://img.shields.io/badge/中文-README-red)](README.zh-CN.md)
 
 Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend.
 **Single static-linked binary, zero UAC, XDG-first directories.**

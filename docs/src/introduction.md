@@ -2,6 +2,8 @@
 
 > Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend.
 > Single static-linked binary, zero UAC, XDG-first directories.
+>
+> 🌐 **[中文版 →](/zh/)**
 
 ## What problem Luban solves
 
