@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.25)
+project({{name}} CXX)
+
+include(${CMAKE_SOURCE_DIR}/luban.cmake)
+luban_register_targets()
+
+# Below this line is yours — luban will not touch it.

@@ -1,0 +1,12 @@
+{
+  "_comment": "Luban overlay: same upstream as Scoop main 'mingit', listed here only so the seed is self-contained. The Scoop main version is fine if this is missing.",
+  "version": "2.54.0",
+  "homepage": "https://github.com/git-for-windows/git",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/MinGit-2.54.0-64-bit.zip",
+      "hash": "04f937e1f0918b17b9be6f2294cb2bb66e96e1d9832d1c298e2de088a1d0e668"
+    }
+  },
+  "env_add_path": ["cmd"]
+}

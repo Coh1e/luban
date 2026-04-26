@@ -1,0 +1,20 @@
+{
+  "_comment": "Default toolchain selection installed by `luban-boot setup`. To opt out of one, set `enabled` to false. To pin a different upstream, drop a same-named JSON into <data>/registry/overlay/.",
+  "schema": 1,
+  "components": [
+    {"name": "llvm-mingw", "enabled": true,
+     "_why": "clang/clangd/lld/libc++/MinGW runtime in one userland zip — replaces MSVC for the no-UAC default path"},
+    {"name": "cmake",      "enabled": true},
+    {"name": "ninja",      "enabled": true,
+     "_why": "required generator — Visual Studio generators do not produce compile_commands.json"},
+    {"name": "mingit",     "enabled": true,
+     "_why": "needed by vcpkg and as a general dev tool"}
+  ],
+  "extras": [
+    {"name": "just",       "enabled": false},
+    {"name": "vcpkg",      "enabled": true,
+     "_why": "C++ project deps. Overlay manifest at manifests_seed/vcpkg.json bypasses Scoop's installer.script; component.cpp runs bootstrap-vcpkg.bat once after extract."},
+    {"name": "zig",        "enabled": false,
+     "_why": "optional: enables `luban build --target <linux-triple>` via `zig cc`"}
+  ]
+}

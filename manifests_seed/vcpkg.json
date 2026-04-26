@@ -1,0 +1,10 @@
+{
+  "_comment": "Luban overlay: install vcpkg ports tree from microsoft/vcpkg release zip. Plain url+hash; no installer.script. After extract, luban runs bootstrap-vcpkg.bat once to fetch vcpkg.exe from microsoft/vcpkg-tool — that step is special-cased in component.cpp and only triggered when the component name is exactly 'vcpkg'.",
+  "version": "2026.03.18",
+  "url": "https://github.com/microsoft/vcpkg/archive/refs/tags/2026.03.18.zip",
+  "hash": "sha256:528ff8708702e296b5744d9168c3fb4343c015fa024cd3770ede8ac94d9971b9",
+  "extract_dir": "vcpkg-2026.03.18",
+  "bin": [
+    ["vcpkg.exe", "vcpkg"]
+  ]
+}

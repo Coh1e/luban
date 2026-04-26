@@ -1,0 +1,100 @@
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "Luban API Reference"
+PROJECT_BRIEF          = "C++ source-level reference for contributors"
+PROJECT_NUMBER         = 0.1.0-dev
+OUTPUT_DIRECTORY       = ../build/docs/api
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = YES
+OUTPUT_LANGUAGE        = English
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+ALWAYS_DETAILED_SEC    = NO
+INLINE_INHERITED_MEMB  = NO
+FULL_PATH_NAMES        = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = NO
+PYTHON_DOCSTRING       = YES
+INHERIT_DOCS           = YES
+SEPARATE_MEMBER_PAGES  = NO
+TAB_SIZE               = 4
+MARKDOWN_SUPPORT       = YES
+TOC_INCLUDE_HEADINGS   = 5
+AUTOLINK_SUPPORT       = YES
+BUILTIN_STL_SUPPORT    = YES
+
+# ---- Input ----
+INPUT                  = ../src
+FILE_PATTERNS          = *.cpp *.hpp *.h
+RECURSIVE              = YES
+EXCLUDE                = ../src/main.cpp
+EXCLUDE_PATTERNS       =
+EXCLUDE_SYMBOLS        =
+USE_MDFILE_AS_MAINPAGE = ../README.md
+
+# ---- Source browser ----
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+# ---- Output: HTML ----
+GENERATE_HTML          = YES
+HTML_OUTPUT            = .
+HTML_FILE_EXTENSION    = .html
+HTML_HEADER            = doxygen-awesome-header.html
+HTML_FOOTER            =
+HTML_EXTRA_STYLESHEET  = doxygen-awesome.css \
+                         doxygen-awesome-sidebar-only.css
+HTML_EXTRA_FILES       = doxygen-awesome-darkmode-toggle.js
+HTML_COLORSTYLE        = LIGHT
+HTML_DYNAMIC_SECTIONS  = YES
+HTML_INDEX_NUM_ENTRIES = 100
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+ENUM_VALUES_PER_LINE   = 4
+
+# ---- Don't generate man/RTF/LaTeX/etc. ----
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+GENERATE_XML           = NO
+GENERATE_DOCBOOK       = NO
+
+# ---- Diagrams ----
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = YES
+COLLABORATION_GRAPH    = NO
+INCLUDE_GRAPH          = NO
+INCLUDED_BY_GRAPH      = NO
+
+# ---- Macros / preprocessing ----
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+EXPAND_ONLY_PREDEF     = NO
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = ../src ../third_party
+PREDEFINED             = _WIN32=1 \
+                         UNICODE=1 \
+                         _UNICODE=1 \
+                         WIN32_LEAN_AND_MEAN=1
+
+# ---- Warnings ----
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+
+# ---- Other ----
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+SORT_MEMBER_DOCS       = YES
+GENERATE_TODOLIST      = YES
+GENERATE_BUGLIST       = YES

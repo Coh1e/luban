@@ -1,0 +1,5 @@
+add_executable({{name}} main.cpp)
+luban_apply({{name}})
+
+# 用户在此可加 target_link_libraries({{name}} PRIVATE mylib)、
+# target_compile_options({{name}} PRIVATE -fsanitize=address) 等。

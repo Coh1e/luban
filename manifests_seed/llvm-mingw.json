@@ -1,0 +1,17 @@
+{
+  "_comment": "Luban overlay: mstorsjo/llvm-mingw (UCRT, x86_64). Bundles clang+clangd+clang-format+clang-tidy+lld+libc++ + MinGW runtime in one zip — Zig-style hermetic toolchain. No PowerShell hooks.",
+  "version": "20260421",
+  "homepage": "https://github.com/mstorsjo/llvm-mingw",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-x86_64.zip",
+      "hash": "0c47b9fc1043b68a8d7e8e022b878f11306ed35beacf858864b36b096a0acd95"
+    },
+    "arm64": {
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-aarch64.zip",
+      "hash": ""
+    }
+  },
+  "env_add_path": ["bin"]
+}

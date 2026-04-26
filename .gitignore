@@ -1,0 +1,33 @@
+# Build artifacts
+build/
+out/
+.cache/
+.vs/
+*.user
+
+# CMake
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE / editor
+.vscode/
+*.swp
+.DS_Store
+
+# vcpkg working dirs (per-project, not luban's repo)
+vcpkg_installed/
+
+# Doxygen / mdBook output (built by CI)
+docs/book/
+docs/api/
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Editor scratch
+*.bak
+*.orig
+
+# Claude Code local settings (per-machine)
+.claude/settings.local.json
