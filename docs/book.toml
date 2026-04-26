@@ -12,7 +12,9 @@ preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/Coh1e/luban"
 edit-url-template = "https://github.com/Coh1e/luban/edit/main/docs/{path}"
 site-url = "/"
-cname = ""
+# NOTE: do NOT set `cname` here — mdBook would write an empty CNAME file
+# which then prevents peaceiris/actions-gh-pages from injecting the real
+# value at deploy time. The CNAME is set via the action's `cname:` parameter.
 
 [output.html.fold]
 enable = true
