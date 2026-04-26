@@ -13,7 +13,7 @@ That's it. No Python, no Visual Studio, no Chocolatey/Scoop, nothing pre-install
 
 ### Option A — drop the binary anywhere
 
-1. Download `luban.exe` from the [GitHub Releases](https://github.com/your-org/luban/releases) page.
+1. Download `luban.exe` from the [GitHub Releases](https://github.com/Coh1e/luban/releases) page.
 2. Save it somewhere you'll remember — e.g. `%USERPROFILE%\bin\luban.exe`.
 3. From the next step you can run it via full path or have it on PATH (Option C below).
 
@@ -22,7 +22,7 @@ That's it. No Python, no Visual Studio, no Chocolatey/Scoop, nothing pre-install
 If you already have a C++ toolchain (MSVC, MinGW, Clang) with cmake + ninja:
 
 ```bat
-git clone https://github.com/your-org/luban.git
+git clone https://github.com/Coh1e/luban.git
 cd luban
 cmake --preset default
 cmake --build --preset default

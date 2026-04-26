@@ -14,7 +14,7 @@ You do **not** need: Visual Studio, MSYS2, Chocolatey, Scoop, Python, Git, or an
 
 Any of:
 
-- Download from [GitHub Releases](https://github.com/your-org/luban/releases) and put it in `%USERPROFILE%\bin\luban.exe` (or anywhere)
+- Download from [GitHub Releases](https://github.com/Coh1e/luban/releases) and put it in `%USERPROFILE%\bin\luban.exe` (or anywhere)
 - `git clone` + build from source if you already have a C++ toolchain (see [Installation](../install.md))
 
 Open a **fresh** Command Prompt or PowerShell. Verify:

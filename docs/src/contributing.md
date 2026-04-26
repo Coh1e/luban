@@ -3,7 +3,7 @@
 ## Building luban from source
 
 ```bat
-git clone https://github.com/your-org/luban.git
+git clone https://github.com/Coh1e/luban.git
 cd luban
 
 :: requires LLVM-MinGW + cmake + ninja already on PATH

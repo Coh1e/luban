@@ -9,8 +9,8 @@ src = "src"
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "ayu"
-git-repository-url = "https://github.com/your-org/luban"
-edit-url-template = "https://github.com/your-org/luban/edit/main/docs/{path}"
+git-repository-url = "https://github.com/Coh1e/luban"
+edit-url-template = "https://github.com/Coh1e/luban/edit/main/docs/{path}"
 site-url = "/"
 cname = ""
 
