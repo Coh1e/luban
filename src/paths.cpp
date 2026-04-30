@@ -87,16 +87,6 @@ fs::path localappdata() {
 #endif
 }
 
-fs::path appdata_roaming() {
-    auto v = from_env("APPDATA");
-    if (v) return *v;
-#ifdef _WIN32
-    return known_folder(FOLDERID_RoamingAppData);
-#else
-    return home() / "AppData" / "Roaming";
-#endif
-}
-
 fs::path resolve(std::string_view role,
                  std::string_view xdg_var,
                  const fs::path& linux_default,
@@ -156,16 +146,29 @@ fs::path state_dir() {
 }
 
 fs::path config_dir() {
+    // XDG_CONFIG_HOME on Linux. macOS uses Preferences. Windows: keep config
+    // local (was roaming before; roaming syncs across domain machines but
+    // installed.json is local — mismatch causes 're-install on every machine'
+    // surprises, and selection.json is no use without matching toolchains).
     return resolve("config", "XDG_CONFIG_HOME",
                    home() / ".config" / std::string(APP_NAME),
                    home() / "Library" / "Preferences" / std::string(APP_NAME),
-                   appdata_roaming() / std::string(APP_NAME));
+                   localappdata() / std::string(APP_NAME) / "Config");
 }
 
 fs::path store_dir() { return data_dir() / "store"; }
 fs::path store_sha256_dir() { return store_dir() / "sha256"; }
 fs::path toolchains_dir() { return data_dir() / "toolchains"; }
 fs::path toolchain_dir(std::string_view name) { return toolchains_dir() / std::string(name); }
+
+// luban-managed shim dir (cargo's ~/.cargo/bin/ pattern). One toolchain
+// install can produce hundreds of shims (LLVM-MinGW alone yields ~280 cross-
+// compiler aliases), so dropping them into the shared XDG ~/.local/bin would
+// clobber the volume of files there and stress Defender real-time scanning
+// during cleanup. Keep them under <data> where the dir is 100% luban-owned.
+//
+// luban.exe itself goes to ~/.local/bin/ via install.ps1 — that's user-level
+// XDG, single-binary, joins uv/pipx/claude-code. Toolchain shims live here.
 fs::path bin_dir() { return data_dir() / "bin"; }
 fs::path env_dir() { return data_dir() / "env"; }
 fs::path registry_dir() { return data_dir() / "registry"; }

@@ -18,7 +18,6 @@
 
 #include "../cli.hpp"
 #include "../download.hpp"
-#include "../env_snapshot.hpp"
 #include "../hash.hpp"
 #include "../log.hpp"
 #include "../paths.hpp"
@@ -244,18 +243,20 @@ int run_uninstall(bool yes, bool keep_data) {
     if (!yes) {
         log::warn("`luban self uninstall` is destructive. Re-run with --yes to confirm.");
         log::info("This will:");
-        log::info("  - remove luban from HKCU PATH and unset HKCU LUBAN_*/VCPKG_ROOT");
+        log::info("  - remove bin_dir (<data>/bin) from HKCU PATH");
+        log::info("  - unset HKCU VCPKG_ROOT and legacy LUBAN_* env vars");
         if (!keep_data) {
             log::info("  - delete <data>/<cache>/<state>/<config> (toolchains + caches + registry)");
         } else {
-            log::info("  - keep toolchains (--keep-data); only undo HKCU env injection");
+            log::info("  - keep <data>/<cache>/<state>/<config> (--keep-data)");
         }
-        log::info("  - schedule luban.exe + luban-shim.exe self-delete on next 1-2s");
+        log::info("  - schedule luban.exe + luban-shim.exe self-delete in ~1-2s");
         log::info("Use --keep-data to preserve toolchains + cache.");
         return 1;
     }
 
-    // 1. report what's about to vanish
+    // 1. Report what's about to vanish so the user has one last chance to bail
+    //    (mostly informational; --yes already committed).
     log::step("cleanup plan");
     if (!keep_data) {
         log_dir_size(paths::data_dir());
@@ -264,14 +265,19 @@ int run_uninstall(bool yes, bool keep_data) {
         log_dir_size(paths::config_dir());
     }
 
-    // 2. reverse env --user
+    // 2. Reverse env --user. bin_dir is luban-owned (<data>/bin), so we
+    //    remove it from HKCU PATH unconditionally. Older v0.1.x style.
     log::step("removing HKCU PATH + env vars");
     win_path::remove_from_user_path(paths::bin_dir());
-    for (auto& [k, _] : env_snapshot::env_dict()) win_path::unset_user_env(k);
+    for (const char* name : {"LUBAN_DATA", "LUBAN_CACHE", "LUBAN_STATE", "LUBAN_CONFIG"}) {
+        win_path::unset_user_env(name);
+    }
     win_path::unset_user_env("VCPKG_ROOT");
     log::ok("HKCU env cleaned");
 
-    // 3. wipe dirs (unless --keep-data)
+    // 3. Wipe luban-owned directories (data / cache / state / config). With
+    //    bin_dir = <data>/bin, the data wipe takes the shims with it, so we
+    //    don't need a separate selective-removal step.
     if (!keep_data) {
         log::step("removing luban directories");
         wipe(paths::data_dir());
@@ -283,13 +289,15 @@ int run_uninstall(bool yes, bool keep_data) {
         log::info("--keep-data: toolchains + caches preserved at <data>/etc.");
     }
 
-    // 4. self-delete the binaries
+    // 5. Self-delete the binaries: luban.exe (the running one) plus any
+    //    sibling luban-shim.exe (build output / dev tree). The bin_dir copy
+    //    was wiped via the data_dir() pass above when --keep-data is false.
 #ifdef _WIN32
     fs::path self = self_exe_path();
-    fs::path shim = self.parent_path() / "luban-shim.exe";
     std::vector<fs::path> targets = {self};
+    fs::path shim_sibling = self.parent_path() / "luban-shim.exe";
     std::error_code ec;
-    if (fs::exists(shim, ec)) targets.push_back(shim);
+    if (fs::exists(shim_sibling, ec)) targets.push_back(shim_sibling);
     log::step("scheduling self-delete (~1.5s)");
     spawn_self_delete_batch(targets);
     log::ok("done");
@@ -334,9 +342,10 @@ void register_self() {
         "  and scheduled for delete-on-reboot.\n"
         "\n"
         "  `luban self uninstall --yes` reverses every footprint:\n"
-        "    - HKCU PATH + LUBAN_* + VCPKG_ROOT unset\n"
-        "    - <data>/<cache>/<state>/<config> wiped (or --keep-data to skip)\n"
-        "    - luban.exe + luban-shim.exe scheduled for self-delete via batch\n"
+        "    - Remove bin_dir (<data>/bin) from HKCU PATH\n"
+        "    - Unset HKCU VCPKG_ROOT + legacy LUBAN_* env vars\n"
+        "    - Wipe <data>/<cache>/<state>/<config> (or --keep-data to skip)\n"
+        "    - Schedule luban.exe + sibling luban-shim.exe self-delete\n"
         "  Refuses without --yes (destructive).";
     c.flags = {"yes", "keep-data"};
     c.n_positional = 1;

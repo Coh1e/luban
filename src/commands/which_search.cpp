@@ -150,9 +150,10 @@ void register_run() {
     c.help = "run a luban-managed exe with toolchain env injected (uv-style)";
     c.group = "advanced";
     c.long_help =
-        "  `luban run <cmd> [args...]` activates luban's toolchain env\n"
-        "  (PATH + LUBAN_* + VCPKG_ROOT) and exec's the command, forwarding all\n"
-        "  args verbatim. Equivalent to `call activate.cmd && <cmd> args`.\n"
+        "  `luban run <cmd> [args...]` injects luban's toolchain env (PATH +\n"
+        "  VCPKG_ROOT + vcpkg cache vars) into a child process and exec's the\n"
+        "  command, forwarding all args verbatim. Useful when you haven't run\n"
+        "  `luban env --user` (e.g., in a fresh CI shell or container).\n"
         "\n"
         "  `<cmd>` resolves via:\n"
         "    1. registry alias (e.g., 'cmake' → toolchains/cmake-X/bin/cmake.exe)\n"
@@ -161,7 +162,7 @@ void register_run() {
         "  All args after `<cmd>` are forwarded WITHOUT luban-side parsing\n"
         "  (so `luban run cmake --version` works, the --version goes to cmake).";
     c.examples = {
-        "luban run cmake --version\tWithout `call activate.cmd` first",
+        "luban run cmake --version\tWithout `luban env --user` first",
         "luban run clang -E -dM -x c nul\tDump preprocessor macros",
         "luban run vcpkg list\tList installed ports",
     };

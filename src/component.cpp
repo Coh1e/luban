@@ -291,6 +291,11 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
     }
 
     // 9. 写 shim + 收集 bin 路径
+    //
+    // bin_dir() is now ~/.local/bin (XDG-shared with uv/pipx/etc.). Some
+    // aliases may collide with files we don't own; shim::write_shim returns
+    // Skipped in that case. We keep the bin in installed.json regardless so
+    // `luban shim --force` (or manual cleanup + `luban shim`) can recover.
     std::vector<std::pair<std::string, fs::path>> bins_out;
     std::vector<std::string> aliases_taken;
     for (auto& entry : parsed.bins) {
@@ -299,7 +304,12 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
             log::warnf("  bin '{}' points at missing file {}", entry.alias, exe.string());
             continue;
         }
-        shim::write_shim(entry.alias, exe, entry.prefix_args);
+        auto wr = shim::write_shim(entry.alias, exe, entry.prefix_args);
+        if (wr == shim::WriteResult::Skipped) {
+            log::warnf("  shim skipped: {} already exists in {} (not luban-managed)",
+                       entry.alias, paths::bin_dir().string());
+            log::info("  → run `luban shim --force` to overwrite");
+        }
         bins_out.emplace_back(entry.alias, exe);
         aliases_taken.push_back(entry.alias);
     }
@@ -323,7 +333,12 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
             if (ext != ".exe" && ext != ".cmd" && ext != ".bat") continue;
             std::string alias = e.path().stem().string();
             if (std::find(aliases_taken.begin(), aliases_taken.end(), alias) != aliases_taken.end()) continue;
-            shim::write_shim(alias, e.path());
+            auto wr = shim::write_shim(alias, e.path());
+            if (wr == shim::WriteResult::Skipped) {
+                log::warnf("  shim skipped: {} already exists in {} (not luban-managed)",
+                           alias, paths::bin_dir().string());
+                continue;
+            }
             bins_out.emplace_back(alias, e.path());
             aliases_taken.push_back(alias);
         }
