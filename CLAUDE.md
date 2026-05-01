@@ -53,7 +53,7 @@ src/                           # luban C++23 source (~6.5k lines)
   registry.cpp                 # installed.json schema=1 (shared with old Python)
   component.cpp                # full install pipeline; line ~188 has vcpkg
                                # post-extract bootstrap special-case
-  shim.cpp                     # text shim writers (.cmd/.ps1/sh)
+  shim.cpp                     # text shim writers (.cmd only as of v0.3)
   shim_exe/main.cpp            # luban-shim.exe — separate binary, hard-linked per alias
   commands/<verb>.cpp          # one cpp per verb
   util/win.hpp                 # utf8↔wstring conversions
@@ -150,7 +150,7 @@ git tag -a vX.Y.Z -m "luban X.Y.Z — ..." && git push --tags
 ### Regenerate exe shims on this machine
 
 ```bat
-luban shim          :: rewrites .cmd/.ps1/sh + .exe (hard-linked) + .shim-table.json
+luban shim          :: rewrites .cmd + .exe (hard-linked) + .shim-table.json
 ```
 
 ## Known quirks
