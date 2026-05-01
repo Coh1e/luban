@@ -7,6 +7,7 @@
 
 #include "json.hpp"
 
+#include "file_util.hpp"
 #include "paths.hpp"
 
 namespace luban::registry {
@@ -68,10 +69,14 @@ std::map<std::string, ComponentRecord> load_installed() {
     auto p = paths::installed_json_path();
     std::error_code ec;
     if (!fs::exists(p, ec)) return out;
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return out;
+    // installed.json is luban-written so no BOM concern, but routing
+    // through file_util keeps every JSON reader in the codebase using
+    // the same I/O path and immune to user-introduced BOMs (someone
+    // hand-edits to fix something).
+    std::string text = file_util::read_text_no_bom(p);
+    if (text.empty()) return out;
     json doc;
-    try { in >> doc; } catch (...) { return out; }
+    try { doc = json::parse(text); } catch (...) { return out; }
     if (!doc.contains("components") || !doc["components"].is_object()) return out;
     for (auto& [name, info] : doc["components"].items()) {
         if (info.is_object()) out.emplace(name, parse_record(name, info));
@@ -108,18 +113,11 @@ void save_installed(const std::map<std::string, ComponentRecord>& records) {
     for (auto& [name, rec] : records) comps[name] = record_to_json(rec);
     json doc = {{"schema", kSchema}, {"components", comps}};
 
+    // Python writes sort_keys=True, indent=2 → match for byte-stable diff
+    // against installed.json files produced by the legacy Python tooling.
     auto p = paths::installed_json_path();
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    auto tmp = p;
-    tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        // Python writes sort_keys=True, indent=2 → match for byte-stable diff.
-        out << doc.dump(2, ' ', false, json::error_handler_t::strict);
-    }
-    fs::rename(tmp, p, ec);
-    if (ec) { fs::copy_file(tmp, p, fs::copy_options::overwrite_existing, ec); fs::remove(tmp, ec); }
+    file_util::write_text_atomic(
+        p, doc.dump(2, ' ', false, json::error_handler_t::strict));
 }
 
 }  // namespace luban::registry

@@ -9,6 +9,7 @@
 #include "util/win.hpp"
 #endif
 
+#include "file_util.hpp"
 #include "json.hpp"
 #include "log.hpp"
 #include "paths.hpp"
@@ -45,26 +46,6 @@ fs::path seed_root() {
     return {};
 }
 
-std::string read_text_strip_bom(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    std::string s = ss.str();
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF
-        && static_cast<unsigned char>(s[1]) == 0xBB
-        && static_cast<unsigned char>(s[2]) == 0xBF) {
-        s.erase(0, 3);
-    }
-    return s;
-}
-
-void write_text(const fs::path& path, const std::string& content) {
-    std::error_code ec;
-    fs::create_directories(path.parent_path(), ec);
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    out.write(content.data(), static_cast<std::streamsize>(content.size()));
-}
-
 std::vector<Entry> coerce(const json& arr) {
     std::vector<Entry> out;
     if (!arr.is_array()) return out;
@@ -95,10 +76,12 @@ Selection load(bool deploy_seed) {
     std::error_code ec;
     if (!fs::exists(target, ec)) {
         if (deploy_seed && fs::exists(seed, ec)) {
-            std::error_code ec2;
-            fs::create_directories(target.parent_path(), ec2);
-            std::string text = read_text_strip_bom(seed);
-            write_text(target, text);
+            // Copy the in-tree seed to the user's config dir on first
+            // run. file_util::write_text_atomic handles parent-dir
+            // creation + tmp+rename — atomic write is overkill for a
+            // first-time copy but harmless and dedups the I/O surface.
+            std::string text = file_util::read_text_no_bom(seed);
+            file_util::write_text_atomic(target, text);
         } else {
             // 不部署 seed 也不存在用户文件——直接读 seed 当源
             target = seed;
@@ -108,7 +91,7 @@ Selection load(bool deploy_seed) {
     Selection sel;
     if (!fs::exists(target, ec)) return sel;
 
-    std::string text = read_text_strip_bom(target);
+    std::string text = file_util::read_text_no_bom(target);
     json doc;
     try { doc = json::parse(text); } catch (...) { return sel; }
     if (!doc.is_object()) return sel;
@@ -139,16 +122,7 @@ void save(const Selection& sel) {
     for (auto& e : sel.extras) doc["extras"].push_back(entry_to_json(e));
 
     fs::path target = paths::selection_json_path();
-    std::error_code ec;
-    fs::create_directories(target.parent_path(), ec);
-    fs::path tmp = target;
-    tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        std::string text = doc.dump(2);
-        out.write(text.data(), static_cast<std::streamsize>(text.size()));
-    }
-    fs::rename(tmp, target, ec);
+    file_util::write_text_atomic(target, doc.dump(2));
 }
 
 bool enable(Selection& sel, const std::string& name) {
@@ -198,8 +172,8 @@ std::vector<fs::path> deploy_overlays() {
 
         fs::path dst = overlay / src.filename();
         if (!fs::exists(dst, ec)) {
-            std::string text = read_text_strip_bom(src);
-            write_text(dst, text);
+            std::string text = file_util::read_text_no_bom(src);
+            file_util::write_text_atomic(dst, text);
         }
         deployed.push_back(dst);
     }
