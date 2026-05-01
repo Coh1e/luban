@@ -105,7 +105,7 @@ why-cmake-module}.md`.
 ### Add a vcpkg port → cmake target mapping
 
 Edit `src/lib_targets.cpp` table. Each row: `{port, find_package_name,
-{target1, target2, ...}}`. ~50 popular libs already there; PR welcome.
+{target1, target2, ...}}`. ~125 popular libs already there (rolling); PR welcome.
 
 ### Add a new bootstrappable component (e.g., a new toolchain)
 

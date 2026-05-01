@@ -202,6 +202,13 @@ const std::vector<Entry>& table() {
         // 反汇编 / 调试
         {"capstone",              "capstone",                 {"capstone::capstone"}},
         {"zydis",                 "Zydis",                    {"Zydis::Zydis"}},
+
+        // 消息队列 / 流处理
+        // librdkafka emits a CMake config that exposes both C (rdkafka) and
+        // C++ (rdkafka++) targets; we link both since the C++ port stub
+        // needs the C lib too. cppkafka is a separate higher-level wrapper.
+        {"librdkafka",            "RdKafka",                  {"RdKafka::rdkafka", "RdKafka::rdkafka++"}},
+        {"cppkafka",              "CppKafka",                 {"CppKafka::cppkafka"}},
     };
     return v;
 }
