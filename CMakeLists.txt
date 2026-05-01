@@ -38,6 +38,7 @@ set(LUBAN_SOURCES
     src/vcpkg_manifest.cpp
     src/lib_targets.cpp
     src/luban_cmake_gen.cpp
+    src/perception.cpp
     third_party/miniz.c
     src/commands/doctor.cpp
     src/commands/env.cpp

@@ -13,6 +13,7 @@
 #include "../cli.hpp"
 #include "../log.hpp"
 #include "../paths.hpp"
+#include "../perception.hpp"
 #include "../registry.hpp"
 #include "../vcpkg_manifest.hpp"
 #include "../luban_toml.hpp"
@@ -193,11 +194,52 @@ void print_text(const json& s) {
 }
 
 int run_describe(const cli::ParsedArgs& a) {
-    json s = build_state();
-    bool as_json = false;
-    auto it = a.flags.find("json");
-    if (it != a.flags.end() && it->second) as_json = true;
+    auto get_flag = [&](const char* name) {
+        auto it = a.flags.find(name);
+        return it != a.flags.end() && it->second;
+    };
+    bool as_json = get_flag("json");
+    bool want_host = get_flag("host");
 
+    // --host is a focused mode: just the perception snapshot, JSON or
+    // pretty-printed. Bypasses the project-state discovery so it's fast
+    // (sub-millisecond) and useful in any directory.
+    if (want_host) {
+        auto h = perception::snapshot();
+        json doc = perception::to_json(h);
+        if (as_json) {
+            std::cout << doc.dump(2) << '\n';
+        } else {
+            std::cout << "host: " << h.os_name << " " << h.os_version
+                      << " (" << h.arch << ")\n";
+            std::cout << "cpu : " << h.cpu_brand
+                      << " — " << h.cpu_cores << " cores / "
+                      << h.cpu_threads << " threads\n";
+            if (!h.cpu_features.empty()) {
+                std::cout << "simd: ";
+                for (size_t i = 0; i < h.cpu_features.size(); ++i) {
+                    if (i) std::cout << ", ";
+                    std::cout << h.cpu_features[i];
+                }
+                std::cout << "\n";
+            }
+            if (h.ram_total > 0) {
+                double gb = static_cast<double>(h.ram_total) / (1024.0 * 1024.0 * 1024.0);
+                std::cout << "ram : " << gb << " GB total\n";
+            }
+            if (!h.tools_on_path.empty()) {
+                std::cout << "tools on PATH: ";
+                for (size_t i = 0; i < h.tools_on_path.size(); ++i) {
+                    if (i) std::cout << ", ";
+                    std::cout << h.tools_on_path[i];
+                }
+                std::cout << "\n";
+            }
+        }
+        return 0;
+    }
+
+    json s = build_state();
     if (as_json) std::cout << s.dump(2) << '\n';
     else print_text(s);
     return 0;
@@ -212,16 +254,22 @@ void register_describe() {
     c.group = "advanced";
     c.long_help =
         "  Dump everything luban knows: paths, installed toolchains, bin\n"
-        "  aliases, and (when run inside a luban project) vcpkg deps + luban.toml\n"
-        "  prefs + build state.\n"
+        "  aliases, and (when run inside a luban project) vcpkg deps +\n"
+        "  luban.toml prefs + build state.\n"
         "\n"
-        "  Default output is human-readable text. With --json, prints a single\n"
-        "  JSON object suitable for piping to jq / IDE plugins / future visualizers.";
-    c.flags = {"json"};
+        "  --host    Skip project state; emit only a host capability snapshot\n"
+        "            (OS, CPU, RAM, SIMD features, dev tools on PATH, XDG env).\n"
+        "            Cheap (~1 ms); usable from any directory.\n"
+        "  --json    Machine-readable JSON output. Combines with --host.\n"
+        "\n"
+        "  Default output is human-readable text. The JSON form has schema=1\n"
+        "  and is intended for IDE plugins / AI agents / pipeline scripts.";
+    c.flags = {"json", "host"};
     c.examples = {
         "luban describe\tHuman-readable summary",
         "luban describe --json\tMachine-readable JSON dump",
-        "luban describe --json | jq .installed_components[].name\tJq filter",
+        "luban describe --host\tHost capability snapshot only",
+        "luban describe --host --json | jq .cpu_features\tJq filter on host",
     };
     c.run = run_describe;
     cli::register_subcommand(std::move(c));
