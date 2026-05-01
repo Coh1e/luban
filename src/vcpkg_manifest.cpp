@@ -5,6 +5,7 @@
 #include <sstream>
 #include <system_error>
 
+#include "file_util.hpp"
 #include "log.hpp"
 
 namespace luban::vcpkg_manifest {
@@ -33,12 +34,14 @@ Manifest load(const fs::path& path, const std::string& fallback_name) {
     std::error_code ec;
     if (!fs::exists(path, ec)) return m;
 
+    // BOM-strip via file_util — VS Code saves vcpkg.json with UTF-8 BOM
+    // by default, and nlohmann::json's stream operator rejects raw BOM.
+    // Without this, a user's first VS Code edit silently breaks `luban add`.
+    std::string text = file_util::read_text_no_bom(path);
+    if (text.empty()) return m;
+
     json doc;
-    {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) return m;
-        try { in >> doc; } catch (...) { return m; }
-    }
+    try { doc = json::parse(text); } catch (...) { return m; }
     if (!doc.is_object()) return m;
 
     if (doc.contains("name") && doc["name"].is_string()) {
@@ -99,18 +102,12 @@ void save(const fs::path& path, const Manifest& m) {
         for (auto& [k, v] : m.extras.items()) doc[k] = v;
     }
 
-    std::error_code ec;
-    fs::create_directories(path.parent_path(), ec);
-    fs::path tmp = path; tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        out << doc.dump(2) << '\n';
-    }
-    fs::rename(tmp, path, ec);
-    if (ec) {
-        fs::copy_file(tmp, path, fs::copy_options::overwrite_existing, ec);
-        fs::remove(tmp, ec);
-    }
+    // Atomic write via file_util — same tmp+rename + cross-volume fallback
+    // logic as the previous inline code, just shared with other manifest
+    // writers (selection.cpp, registry.cpp soon to follow).
+    std::string text = doc.dump(2);
+    text.push_back('\n');  // trailing newline matches prior behaviour
+    file_util::write_text_atomic(path, text);
 }
 
 void add(Manifest& m, const std::string& pkg, const std::string& version_ge) {
