@@ -27,6 +27,7 @@
 - [`luban shim`](./commands/shim.md)
 - [`luban self`](./commands/self.md)
 - [`luban completion`](./commands/completion.md)
+- [`luban specs`](./commands/specs.md)
 
 # Workflows
 

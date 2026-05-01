@@ -1,0 +1,27 @@
+# specs/
+
+This directory is **suggestion, not spec**. Restructure freely.
+
+It's where this project keeps its raw, structured requirements (the kind
+AI agents read to give project-specific advice). Default layout:
+
+```
+specs/
+├── README.md           ← you're here
+├── HOW-TO-USE.md       ← detailed walkthrough (`luban specs --help` mirrors this)
+└── sage/
+    └── <topic>/
+        ├── scene.md    ← scenario in your own words
+        ├── pain.md     ← why this hurts now
+        └── mvp.md      ← boundary + user stories + acceptance
+```
+
+You don't have to keep this layout. The structure that matters is the
+**content delivered to AI** via `../AGENTS.md`. If you want to use single
+files (`01-onboarding.md`), or a different methodology (STAR / 5W /
+Job Story instead of SAGE), or no methodology at all — go ahead and refactor.
+
+For the full method walkthrough (or to remind yourself how SAGE works),
+read `HOW-TO-USE.md` here, or run:
+
+    luban specs --help

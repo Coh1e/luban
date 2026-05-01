@@ -11,6 +11,28 @@ configure_file(
     "${CMAKE_BINARY_DIR}/gen/luban/version.hpp"
     @ONLY)
 
+# Manual-grade long_help subsystem. The mdBook chapter for `specs` is
+# also embedded as a C++ raw string literal so `luban specs --help`
+# (and `specs/HOW-TO-USE.md` in scaffolded projects) matches the docs
+# byte-for-byte. Bumping the .md, the binary's --help follows on rebuild.
+#
+# Chosen verbs: specs (manual-grade by design); new and setup are also
+# entry-point decisions where users benefit from a thorough --help.
+set(EMBED_HELP_DIR "${CMAKE_BINARY_DIR}/gen/luban/embedded_help")
+foreach(VERB IN ITEMS specs)
+    add_custom_command(
+        OUTPUT  "${EMBED_HELP_DIR}/${VERB}.hpp"
+        COMMAND "${CMAKE_COMMAND}"
+                -DINPUT=${CMAKE_SOURCE_DIR}/docs/src/commands/${VERB}.md
+                -DOUTPUT=${EMBED_HELP_DIR}/${VERB}.hpp
+                -DSYMBOL=${VERB}
+                -P ${CMAKE_SOURCE_DIR}/cmake/embed_text.cmake
+        DEPENDS ${CMAKE_SOURCE_DIR}/docs/src/commands/${VERB}.md
+                ${CMAKE_SOURCE_DIR}/cmake/embed_text.cmake
+        VERBATIM)
+    list(APPEND LUBAN_EMBED_HELP_HEADERS "${EMBED_HELP_DIR}/${VERB}.hpp")
+endforeach()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,6 +76,8 @@ set(LUBAN_SOURCES
     src/commands/self_cmd.cpp
     src/commands/completion.cpp
     src/commands/doc.cpp
+    src/commands/specs.cpp
+    ${LUBAN_EMBED_HELP_HEADERS}    # ensure custom_command runs before the TU
 )
 
 add_executable(luban ${LUBAN_SOURCES})
