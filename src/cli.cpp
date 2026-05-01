@@ -5,13 +5,17 @@
 #include <iostream>
 #include <ranges>
 
+#include "luban/version.hpp"
+
 #include "log.hpp"
 
 namespace luban::cli {
 
 namespace {
 
-constexpr std::string_view kVersion = "0.1.2";
+// kVersion is now defined in the cmake-generated luban/version.hpp.
+// Bumping the project version is a single-line edit in CMakeLists.txt.
+using luban::kLubanVersion;
 
 std::vector<Subcommand>& registry() {
     static std::vector<Subcommand> v;
@@ -210,7 +214,7 @@ int dispatch(int argc, char** argv) {
 
     std::string_view first = filtered[0];
     if (first == "-V" || first == "--version") {
-        std::cout << "luban " << kVersion << '\n';
+        std::cout << "luban " << kLubanVersion << '\n';
         return 0;
     }
     if (first == "-h" || first == "--help") {

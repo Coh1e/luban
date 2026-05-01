@@ -115,17 +115,23 @@ Edit `src/lib_targets.cpp` table. Each row: `{port, find_package_name,
    by default.
 3. If the component needs post-extract setup (special-cased in
    `src/component.cpp` keyed by name): vcpkg → bootstrap-vcpkg.bat;
-   emscripten → write `<install>/emscripten/.emscripten` config with
-   LLVM_ROOT/BINARYEN_ROOT/EMSCRIPTEN_ROOT/NODE_JS pointing at registry-resolved paths.
+   emscripten → write `<config>/emscripten/config` with
+   LLVM_ROOT/BINARYEN_ROOT/EMSCRIPTEN_ROOT/NODE_JS pointing at
+   registry-resolved paths (since v0.2; earlier versions wrote
+   `<install>/emscripten/.emscripten`). EM_CONFIG points emcc at it.
 4. If the component depends on another (e.g., emscripten → node), declare
    `"depends": ["node"]` in the manifest. `setup.cpp::expand_depends`
    does DFS post-order so deps install first.
 
 ### Cut a release vX.Y.Z
 
+Single source of truth lives in `CMakeLists.txt`'s `project(luban VERSION X.Y.Z)`.
+cli.cpp / self_cmd.cpp / download.cpp's UA all read it via the cmake-generated
+`luban/version.hpp`.
+
 ```bat
-:: bump version
-sed -i "s|kVersion = \"...\"|kVersion = \"X.Y.Z\"|" src/cli.cpp
+:: bump version (one line, one file)
+sed -i "s|VERSION [0-9.]*|VERSION X.Y.Z|" CMakeLists.txt
 :: build + smoke
 cmake --build --preset release
 build\release\luban.exe --version

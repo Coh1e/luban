@@ -17,6 +17,8 @@
 #include "util/win.hpp"
 #endif
 
+#include "luban/version.hpp"
+
 #include "log.hpp"
 
 namespace luban::download {
@@ -24,7 +26,20 @@ namespace luban::download {
 namespace {
 
 constexpr size_t kChunk = 1 << 16;        // 64 KiB
-constexpr const wchar_t* kUserAgent = L"luban/0.1 (+https://github.com/luban)";
+
+// User-Agent header. Built once from the cmake-injected version string so it
+// always reflects the running binary (was hand-pinned at "0.1" pre-v0.2 and
+// drifted out of sync with kVersion). WinHttpOpen wants UTF-16, so we widen.
+const std::wstring& user_agent() {
+    static const std::wstring s = [] {
+        std::string narrow = "luban/" + std::string(luban::kLubanVersion)
+                           + " (+https://github.com/Coh1e/luban)";
+        std::wstring wide(narrow.size(), L' ');
+        for (size_t i = 0; i < narrow.size(); ++i) wide[i] = static_cast<wchar_t>(narrow[i]);
+        return wide;
+    }();
+    return s;
+}
 
 #ifdef _WIN32
 
@@ -173,7 +188,7 @@ std::expected<int64_t, Error> do_request(
     if (!p) return std::unexpected(Error{ErrorKind::Network, "invalid URL: " + url});
 
     HttpHandle session;
-    session.h = WinHttpOpen(kUserAgent,
+    session.h = WinHttpOpen(user_agent().c_str(),
                             WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpOpen failed"});

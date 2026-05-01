@@ -16,6 +16,8 @@
 
 #include "json.hpp"
 
+#include "luban/version.hpp"
+
 #include "../cli.hpp"
 #include "../download.hpp"
 #include "../hash.hpp"
@@ -31,10 +33,10 @@ namespace {
 namespace fs = std::filesystem;
 using nlohmann::json;
 
-// 与 cli.cpp 里的 kVersion 同步——为避免 cross-TU coupling，复读 luban -V 输出
-// 比 #define 干净：但实际就 hard-code 了一份镜像，每次 release 都要同步。
-// 比对 trade-off：少一个 extern global vs release 多记一处。这里取后者。
-constexpr std::string_view kCurrentVersion = "0.1.2";
+// Pulled from the cmake-generated header — single source of truth in
+// CMakeLists.txt's project(VERSION ...). Was a hand-synced string literal
+// pre-v0.2.
+using luban::kLubanVersion;
 
 constexpr const char* kReleaseApi = "https://api.github.com/repos/Coh1e/luban/releases/latest";
 
@@ -111,8 +113,8 @@ int run_update() {
     auto release = fetch_latest_release();
     if (!release) return 1;
 
-    log::infof("current: {}, latest: {}", kCurrentVersion, release->version);
-    if (release->version == kCurrentVersion) {
+    log::infof("current: {}, latest: {}", kLubanVersion, release->version);
+    if (release->version == kLubanVersion) {
         log::ok("already up to date");
         return 0;
     }
@@ -182,7 +184,7 @@ int run_update() {
     if (ec) return 1;
 #endif
 
-    log::okf("luban updated: {} → {}", kCurrentVersion, release->version);
+    log::okf("luban updated: {} → {}", kLubanVersion, release->version);
     log::infof("re-run any luban command to use the new version");
     return 0;
 }

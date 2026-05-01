@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.25)
-project(luban CXX C)
+project(luban
+    VERSION 0.1.2
+    LANGUAGES CXX C)
+
+# Single source of truth for the version. cli.cpp / self_cmd.cpp / download.cpp
+# all read from the generated header; release flow is "edit VERSION above,
+# rebuild" — no more `sed kVersion` dance across multiple files.
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/version.hpp.in"
+    "${CMAKE_BINARY_DIR}/gen/luban/version.hpp"
+    @ONLY)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 11)
@@ -48,6 +58,7 @@ add_executable(luban ${LUBAN_SOURCES})
 target_include_directories(luban PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/third_party
+    ${CMAKE_BINARY_DIR}/gen
 )
 
 if(MSVC)
