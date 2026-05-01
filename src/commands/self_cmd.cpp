@@ -273,6 +273,7 @@ int run_uninstall(bool yes, bool keep_data) {
         win_path::unset_user_env(name);
     }
     win_path::unset_user_env("VCPKG_ROOT");
+    win_path::unset_user_env("EM_CONFIG");
     log::ok("HKCU env cleaned");
 
     // 3. Wipe luban-owned directories (data / cache / state / config). With

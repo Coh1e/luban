@@ -45,9 +45,10 @@ int run_env(const cli::ParsedArgs& a) {
         return it != a.flags.end() && it->second;
     };
 
-    // --user: rustup-style. Add bin_dir() to HKCU PATH and set VCPKG_ROOT
-    // (the only HKCU env we still own). After this, any new shell sees the
-    // luban toolchain through PATH; cmake presets resolve VCPKG_ROOT directly.
+    // --user: rustup-style. Add bin_dir() to HKCU PATH and set the env vars
+    // tools outside luban need to see (VCPKG_ROOT for cmake presets, EM_CONFIG
+    // for emcc). After this, any new shell sees luban's toolchain through PATH
+    // and these tools resolve their config without further activation.
     if (get_flag("user")) {
         if (win_path::add_to_user_path(bin)) {
             log::okf("added {} to HKCU PATH", bin.string());
@@ -55,18 +56,29 @@ int run_env(const cli::ParsedArgs& a) {
             log::infof("{} already on HKCU PATH (no change)", bin.string());
         }
 
+        auto recs = registry::load_installed();
+
         // VCPKG_ROOT: CMakePresets.json uses
         //   $env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake
         // so the var must be in HKCU for users running cmake outside luban.
-        auto recs = registry::load_installed();
-        auto it = recs.find("vcpkg");
-        if (it != recs.end() && !it->second.toolchain_dir.empty()) {
-            fs::path vcpkg_root = paths::toolchain_dir(it->second.toolchain_dir);
+        auto vcpkg_it = recs.find("vcpkg");
+        if (vcpkg_it != recs.end() && !vcpkg_it->second.toolchain_dir.empty()) {
+            fs::path vcpkg_root = paths::toolchain_dir(vcpkg_it->second.toolchain_dir);
             if (win_path::set_user_env("VCPKG_ROOT", vcpkg_root.string())) {
                 log::okf("set HKCU VCPKG_ROOT = {}", vcpkg_root.string());
             }
         } else {
             log::info("VCPKG_ROOT not set (no vcpkg in registry; run `luban setup --with vcpkg` first)");
+        }
+
+        // EM_CONFIG: emscripten's config file lives at <config>/emscripten/config
+        // (XDG-respecting, written by component.cpp). Setting EM_CONFIG lets
+        // users run emcc directly in any shell — no activation, no PATH dance.
+        if (recs.find("emscripten") != recs.end()) {
+            fs::path em_config = paths::config_dir() / "emscripten" / "config";
+            if (win_path::set_user_env("EM_CONFIG", em_config.string())) {
+                log::okf("set HKCU EM_CONFIG = {}", em_config.string());
+            }
         }
 
         log::info("open a new shell for the changes to take effect.");
@@ -85,7 +97,8 @@ int run_env(const cli::ParsedArgs& a) {
             win_path::unset_user_env(name);
         }
         win_path::unset_user_env("VCPKG_ROOT");
-        log::ok("removed legacy LUBAN_* and VCPKG_ROOT from HKCU env");
+        win_path::unset_user_env("EM_CONFIG");
+        log::ok("removed legacy LUBAN_* and VCPKG_ROOT / EM_CONFIG from HKCU env");
     }
 
     return 0;
