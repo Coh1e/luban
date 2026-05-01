@@ -176,9 +176,8 @@ std::map<std::string, std::string> build_project_context(const fs::path& root) {
     fs::path vcjson = root / "vcpkg.json";
     if (fs::exists(vcjson, ec)) {
         try {
-            std::ifstream in(vcjson);
-            json doc;
-            in >> doc;
+            std::string text = file_util::read_text_no_bom(vcjson);
+            json doc = json::parse(text);
             std::string s;
             if (doc.contains("dependencies") && doc["dependencies"].is_array()) {
                 for (auto& d : doc["dependencies"]) {

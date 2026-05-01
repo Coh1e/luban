@@ -13,6 +13,7 @@
 #include "util/win.hpp"
 #endif
 
+#include "file_util.hpp"
 #include "log.hpp"
 #include "paths.hpp"
 
@@ -260,30 +261,19 @@ bool save(const Captured& c) {
     doc["vars"] = kv;
 
     fs::path target = file_path();
-    std::error_code ec;
-    fs::create_directories(target.parent_path(), ec);
-    fs::path tmp = target; tmp += ".tmp";
-    {
-        std::ofstream of(tmp, std::ios::binary | std::ios::trunc);
-        of << doc.dump(2) << '\n';
-    }
-    fs::rename(tmp, target, ec);
-    if (ec) {
-        // Cross-volume? copy + remove.
-        fs::copy_file(tmp, target, fs::copy_options::overwrite_existing, ec);
-        fs::remove(tmp, ec);
-    }
-    return !ec;
+    std::string text = doc.dump(2);
+    text.push_back('\n');  // trailing newline matches prior behaviour
+    return file_util::write_text_atomic(target, text);
 }
 
 std::optional<Captured> load() {
     fs::path p = file_path();
     std::error_code ec;
     if (!fs::exists(p, ec)) return std::nullopt;
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return std::nullopt;
+    std::string text = file_util::read_text_no_bom(p);
+    if (text.empty()) return std::nullopt;
     json doc;
-    try { in >> doc; } catch (...) { return std::nullopt; }
+    try { doc = json::parse(text); } catch (...) { return std::nullopt; }
     if (!doc.is_object()) return std::nullopt;
 
     Captured c;

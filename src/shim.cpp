@@ -7,6 +7,7 @@
 
 #include "json.hpp"
 
+#include "file_util.hpp"
 #include "paths.hpp"
 
 namespace luban::shim {
@@ -60,11 +61,11 @@ std::map<std::string, std::string> load_table() {
     std::error_code ec;
     fs::path p = table_path();
     if (!fs::exists(p, ec)) return out;
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return out;
+    std::string text = file_util::read_text_no_bom(p);
+    if (text.empty()) return out;
     json doc;
     try {
-        in >> doc;
+        doc = json::parse(text);
     } catch (...) {
         // Malformed table — treat as empty rather than blocking installs.
         return out;

@@ -34,6 +34,7 @@
 #include "json.hpp"
 
 #include "../cli.hpp"
+#include "../file_util.hpp"
 #include "../log.hpp"
 #include "../paths.hpp"
 #include "../registry.hpp"
@@ -100,10 +101,10 @@ std::map<std::string, std::string> load_table() {
     std::error_code ec;
     fs::path p = table_file_path();
     if (!fs::exists(p, ec)) return out;
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return out;
+    std::string text = file_util::read_text_no_bom(p);
+    if (text.empty()) return out;
     json doc;
-    try { in >> doc; } catch (...) { return out; }
+    try { doc = json::parse(text); } catch (...) { return out; }
     if (!doc.is_object()) return out;
     for (auto& [k, v] : doc.items()) {
         if (v.is_string()) out[k] = v.get<std::string>();

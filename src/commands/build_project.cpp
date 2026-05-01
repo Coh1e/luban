@@ -14,6 +14,7 @@
 
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
+#include "../file_util.hpp"
 #include "json.hpp"
 #include "../log.hpp"
 #include "../luban_toml.hpp"
@@ -81,10 +82,9 @@ bool has_wasm_preset(const fs::path& project) {
     fs::path p = project / "CMakePresets.json";
     std::error_code ec;
     if (!fs::exists(p, ec)) return false;
-    std::ifstream in(p);
-    std::ostringstream ss; ss << in.rdbuf();
+    std::string text = file_util::read_text_no_bom(p);
     nlohmann::json doc;
-    try { doc = nlohmann::json::parse(ss.str()); } catch (...) { return false; }
+    try { doc = nlohmann::json::parse(text); } catch (...) { return false; }
     if (!doc.is_object() || !doc.contains("configurePresets")) return false;
     for (auto& cp : doc["configurePresets"]) {
         if (cp.is_object() && cp.contains("name") && cp["name"].is_string()

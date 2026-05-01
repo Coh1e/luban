@@ -34,6 +34,7 @@
 
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
+#include "../file_util.hpp"
 #include "../log.hpp"
 #include "../luban_toml.hpp"
 #include "../paths.hpp"
@@ -108,9 +109,8 @@ ProjectMeta sniff_project_meta(const fs::path& root) {
     fs::path vcpkg_json = root / "vcpkg.json";
     if (fs::exists(vcpkg_json, ec)) {
         try {
-            std::ifstream in(vcpkg_json);
-            json doc;
-            in >> doc;
+            std::string text = file_util::read_text_no_bom(vcpkg_json);
+            json doc = json::parse(text);
             if (doc.contains("name") && doc["name"].is_string()) {
                 m.name = doc["name"].get<std::string>();
             }
@@ -167,13 +167,10 @@ bool ensure_doxyfile(const fs::path& project_root) {
         {"project_brief", meta.brief},
     };
 
-    std::ifstream in(tpl);
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    std::string out = render_template(ss.str(), ctx);
+    std::string tpl_text = file_util::read_text(tpl);
+    std::string out = render_template(tpl_text, ctx);
 
-    std::ofstream of(target, std::ios::binary | std::ios::trunc);
-    of.write(out.data(), static_cast<std::streamsize>(out.size()));
+    file_util::write_text_atomic(target, out);
     log::okf("wrote {} (edit freely; `luban doc` won't overwrite it)", target.string());
     return true;
 }
