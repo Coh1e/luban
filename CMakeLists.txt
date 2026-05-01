@@ -51,6 +51,7 @@ set(LUBAN_SOURCES
     src/commands/describe.cpp
     src/commands/self_cmd.cpp
     src/commands/completion.cpp
+    src/commands/doc.cpp
 )
 
 add_executable(luban ${LUBAN_SOURCES})
