@@ -36,7 +36,9 @@ Luban has 17 commands, organized into four groups.
 | [`luban describe [--json]`](./describe.md) | Dump system + project state for IDEs / scripts |
 | [`luban shim`](./shim.md) | Regenerate `<data>/bin/` shims (text + .exe; repair tool) |
 | [`luban self {update,uninstall}`](./self.md) | Self-update binary, or uninstall luban completely |
-| [`luban completion <shell>`](./completion.md) | Generate shell completion script (clink today; bash/pwsh/zsh future) |
+| [`luban completion <shell>`](./completion.md) | Generate shell completion script (clink, bash, zsh, fish, pwsh) |
+| [`luban specs {init,sync,new,status}`](./specs.md) | Scaffold AGENTS.md + specs/ for AI-driven requirement collection (SAGE) |
+| [`luban doc [--open] [--clean]`](./doc.md) | Generate Doxygen API docs in `build/doc/html/` |
 
 ## Global flags
 
