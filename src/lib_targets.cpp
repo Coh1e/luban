@@ -209,6 +209,151 @@ const std::vector<Entry>& table() {
         // needs the C lib too. cppkafka is a separate higher-level wrapper.
         {"librdkafka",            "RdKafka",                  {"RdKafka::rdkafka", "RdKafka::rdkafka++"}},
         {"cppkafka",              "CppKafka",                 {"CppKafka::cppkafka"}},
+
+        // ==== v0.3 第三批扩展 — 常用 ports 把表凑近 ~200 ====
+
+        // 更多 Boost 子库（按 vcpkg 装机量排）
+        {"boost-algorithm",       "Boost",       {"Boost::algorithm"}},
+        {"boost-any",             "Boost",       {"Boost::any"}},
+        {"boost-container",       "Boost",       {"Boost::container"}},
+        {"boost-coroutine2",      "Boost",       {"Boost::coroutine2"}},
+        {"boost-fiber",           "Boost",       {"Boost::fiber"}},
+        {"boost-format",          "Boost",       {"Boost::format"}},
+        {"boost-functional",      "Boost",       {"Boost::functional"}},
+        {"boost-graph",           "Boost",       {"Boost::graph"}},
+        {"boost-interprocess",    "Boost",       {"Boost::interprocess"}},
+        {"boost-intrusive",       "Boost",       {"Boost::intrusive"}},
+        {"boost-json",            "Boost",       {"Boost::json"}},
+        {"boost-lockfree",        "Boost",       {"Boost::lockfree"}},
+        {"boost-multi-index",     "Boost",       {"Boost::multi_index"}},
+        {"boost-mpl",             "Boost",       {"Boost::mpl"}},
+        {"boost-optional",        "Boost",       {"Boost::optional"}},
+        {"boost-pool",            "Boost",       {"Boost::pool"}},
+        {"boost-process",         "Boost",       {"Boost::process"}},
+        {"boost-range",           "Boost",       {"Boost::range"}},
+        {"boost-signals2",        "Boost",       {"Boost::signals2"}},
+        {"boost-spirit",          "Boost",       {"Boost::spirit"}},
+        {"boost-stacktrace",      "Boost",       {"Boost::stacktrace"}},
+        {"boost-tokenizer",       "Boost",       {"Boost::tokenizer"}},
+        {"boost-variant",         "Boost",       {"Boost::variant"}},
+        {"boost-variant2",        "Boost",       {"Boost::variant2"}},
+
+        // 更多图像 / 视频
+        {"libtiff",               "TIFF",                     {"TIFF::TIFF"}},
+        {"libwebp",               "WebP",                     {"WebP::webp"}},
+        {"giflib",                "GIF",                      {"GIF::GIF"}},
+        {"libheif",               "libheif",                  {"libheif::heif"}},
+        {"freeimage",             "FreeImage",                {"freeimage::FreeImage"}},
+        {"libraw",                "libraw",                   {"libraw::raw"}},
+        {"openjpeg",              "OpenJPEG",                 {"openjp2"}},
+
+        // 更多数据库 / KV
+        {"leveldb",               "leveldb",                  {"leveldb::leveldb"}},
+        {"rocksdb",               "RocksDB",                  {"RocksDB::rocksdb"}},
+        {"lmdb",                  "lmdb",                     {"lmdb::lmdb"}},
+        {"redis-plus-plus",       "redis++",                  {"redis++::redis++_static"}},
+        {"sqlitecpp",             "SQLiteCpp",                {"SQLiteCpp"}},
+        {"unqlite",               "unqlite",                  {"unqlite::unqlite"}},
+        {"duckdb",                "DuckDB",                   {"DuckDB::duckdb"}},
+
+        // 更多加密 / JWT
+        {"jwt-cpp",               "jwt-cpp",                  {"jwt-cpp::jwt-cpp"}},
+        {"libtomcrypt",           "libtomcrypt",              {"libtomcrypt::libtomcrypt"}},
+        {"argon2",                "unofficial-argon2",        {"unofficial::argon2::argon2"}},
+        {"libgit2",               "unofficial-git2",          {"unofficial::git2::libgit2package"}},
+
+        // 更多 HTTP / WebSocket
+        {"websocketpp",           "websocketpp",              {"websocketpp::websocketpp"}},
+        {"pistache",              "Pistache",                 {"Pistache::Pistache"}},
+        {"restclient-cpp",        "restclient-cpp",           {"restclient-cpp"}},
+        {"poco",                  "Poco",                     {"Poco::Foundation", "Poco::Net", "Poco::Util"}},
+
+        // 异步 / 协程
+        {"cppcoro",               "cppcoro",                  {"cppcoro::cppcoro"}},
+        {"libcoro",               "libcoro",                  {"libcoro::libcoro"}},
+        {"libuvc",                "unofficial-libuvc",        {"unofficial::libuvc::libuvc"}},
+
+        // 更多 JSON / YAML
+        {"jsoncpp",               "jsoncpp",                  {"JsonCpp::JsonCpp"}},
+        {"rapidyaml",             "ryml",                     {"ryml::ryml"}},
+        {"tomlplusplus",          "tomlplusplus",             {"tomlplusplus::tomlplusplus"}},
+        {"libfyaml",              "libfyaml",                 {"libfyaml::fyaml"}},
+
+        // 容器 / hashmap
+        {"parallel-hashmap",      "phmap",                    {"phmap"}},
+        {"robin-hood-hashing",    "robin_hood",               {"robin_hood::robin_hood"}},
+        {"tsl-robin-map",         "tsl-robin-map",            {"tsl::robin_map"}},
+        {"tsl-hopscotch-map",     "tsl-hopscotch-map",        {"tsl::hopscotch_map"}},
+        {"tsl-ordered-map",       "tsl-ordered-map",          {"tsl::ordered_map"}},
+        {"sparsepp",              "sparsepp",                 {"sparsepp::sparsepp"}},
+
+        // 数学 / 科学
+        {"gsl-lite",              "gsl-lite",                 {"gsl::gsl-lite"}},
+        {"ms-gsl",                "Microsoft.GSL",            {"Microsoft.GSL::GSL"}},
+        {"mp-units",              "mp-units",                 {"mp-units::mp-units"}},
+        {"units",                 "units",                    {"units::units"}},
+        {"libdivide",             "libdivide",                {"libdivide::libdivide"}},
+
+        // ML / numerics
+        {"onnxruntime-gpu",       "onnxruntime",              {"onnxruntime::onnxruntime"}},
+        {"xtensor",               "xtensor",                  {"xtensor"}},
+        {"mlpack",                "mlpack",                   {"mlpack::mlpack"}},
+
+        // 测试 / 模拟
+        {"trompeloeil",           "trompeloeil",              {"trompeloeil"}},
+        {"fakeit",                "FakeIt",                   {"FakeIt::FakeIt"}},
+        {"nanobench",             "nanobench",                {"nanobench::nanobench"}},
+        {"approvaltests-cpp",     "ApprovalTests",            {"ApprovalTests::ApprovalTests"}},
+
+        // 日志（更多）
+        {"log4cplus",             "log4cplus",                {"log4cplus::log4cplus"}},
+        {"quill",                 "quill",                    {"quill::quill"}},
+
+        // 串口 / IO
+        {"libserialport",         "unofficial-libserialport", {"unofficial::libserialport::libserialport"}},
+
+        // 调试 / 反编译
+        {"libdwarf",              "libdwarf",                 {"libdwarf::libdwarf"}},
+        {"libbacktrace",          "unofficial-libbacktrace",  {"unofficial::libbacktrace::libbacktrace"}},
+        {"backward-cpp",          "Backward",                 {"Backward::Interface"}},
+        {"frida-gum",             "frida-gum",                {"frida-gum::frida-gum"}},
+
+        // 进程 / 子进程
+        {"reproc",                "reproc++",                 {"reproc++::reproc++"}},
+        {"subprocess",            "subprocess",               {"subprocess::subprocess"}},
+        {"tiny-process-library",  "tiny-process-library",     {"tiny-process-library::tiny-process-library"}},
+
+        // 字符串 / 文本
+        {"icu",                   "ICU",                      {"ICU::uc", "ICU::i18n", "ICU::data"}},
+        {"libstring",             "libstring",                {"libstring"}},
+        {"hopscotch-map",         "tsl-hopscotch-map",        {"tsl::hopscotch_map"}},
+
+        // 嵌入式 / 性能敏感
+        {"etl",                   "etl",                      {"etl::etl"}},
+        {"hayai",                 "Hayai",                    {"Hayai::hayai_main"}},
+
+        // 时间 / 日期（除已有 date）
+        {"hinnant-date",          "date",                     {"date::date", "date::date-tz"}},
+
+        // GUI / 引擎扩展
+        {"entt",                  "EnTT",                     {"EnTT::EnTT"}},
+        {"qt5-base",              "Qt5",                      {"Qt5::Core", "Qt5::Widgets"}},
+        {"qt6-base",              "Qt6",                      {"Qt6::Core", "Qt6::Widgets"}},
+        {"wxwidgets",             "wxWidgets",                {"wxWidgets::wxWidgets"}},
+        {"nuklear",               "nuklear",                  {"nuklear::nuklear"}},
+
+        // 渲染 / 数学（更多）
+        {"openexr",               "OpenEXR",                  {"OpenEXR::OpenEXR"}},
+        {"libigl",                "libigl",                   {"igl::core"}},
+
+        // 协议 / RPC
+        {"grpc",                  "gRPC",                     {"gRPC::grpc++"}},
+        {"thrift",                "thrift",                   {"thrift::thrift"}},
+
+        // 工具 / 日志（misc）
+        {"replxx",                "replxx",                   {"replxx::replxx"}},
+        {"linenoise-ng",          "linenoise-ng",             {"linenoise-ng"}},
+        {"croncpp",               "croncpp",                  {"croncpp::croncpp"}},
     };
     return v;
 }
