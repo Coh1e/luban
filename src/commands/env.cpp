@@ -18,6 +18,7 @@
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
 #include "../log.hpp"
+#include "../msvc_env.hpp"
 #include "../paths.hpp"
 #include "../registry.hpp"
 #include "../win_path.hpp"
@@ -142,6 +143,56 @@ int run_env(const cli::ParsedArgs& a) {
         return 0;
     }
 
+    // --msvc-init: detect existing MSVC install via vswhere + capture
+    // vcvarsall env, persist to <state>/msvc-env.json. From then on,
+    // env_snapshot injects those vars into luban-spawned children, so
+    // `luban build` etc. can drive cl.exe without manual vcvarsall.
+    // We don't install MSVC ourselves — user has it via Microsoft's installer.
+    if (get_flag("msvc-init")) {
+        std::string arch = get_opt("arch");
+        if (arch.empty()) arch = "x64";
+
+        log::step("locating MSVC install via vswhere.exe");
+        fs::path vsw = msvc_env::find_vswhere();
+        if (vsw.empty()) {
+            log::err("vswhere.exe not found at the standard path");
+            log::info("install Visual Studio or VS Build Tools first; vswhere ships with both.");
+            return 1;
+        }
+        log::okf("found vswhere: {}", vsw.string());
+
+        fs::path install = msvc_env::find_install();
+        if (install.empty()) {
+            log::err("vswhere reported no VS install with VC.Tools.x86.x64");
+            log::info("install Visual Studio or VS Build Tools with the C++ workload first.");
+            return 1;
+        }
+        log::okf("found VS install: {}", install.string());
+
+        log::stepf("running vcvarsall {} and capturing env diff", arch);
+        auto cap = msvc_env::capture(install, arch);
+        if (!cap) {
+            log::err("vcvarsall capture failed");
+            return 1;
+        }
+        if (!msvc_env::save(*cap)) {
+            log::err("failed to write msvc-env.json");
+            return 1;
+        }
+        log::okf("captured {} env vars + path addition; saved to {}",
+                 cap->vars.size(), msvc_env::file_path().string());
+        log::info("from now on, `luban build` / `luban run` see MSVC env automatically.");
+        return 0;
+    }
+
+    // --msvc-clear: forget the captured MSVC env. Use after uninstalling
+    // VS or to force a fresh capture next --msvc-init.
+    if (get_flag("msvc-clear")) {
+        msvc_env::clear();
+        log::okf("removed {}", msvc_env::file_path().string());
+        return 0;
+    }
+
     log::infof("luban data dir : {}", paths::data_dir().string());
     log::infof("PATH directory : {}", bin.string());
 
@@ -228,14 +279,23 @@ void register_env() {
         "                        (bash | cmd | powershell). Default: bash.\n"
         "                        For CI / containers / fresh shells where\n"
         "                        writing HKCU is undesirable. Example:\n"
-        "                          eval \"$(luban env --print --shell bash)\"";
-    c.flags = {"user", "unset-user", "print"};
-    c.opts = {{"shell", ""}};
+        "                          eval \"$(luban env --print --shell bash)\"\n"
+        "  --msvc-init [--arch X]  Detect existing MSVC install (via vswhere)\n"
+        "                          and capture vcvarsall env into\n"
+        "                          <state>/msvc-env.json. After this,\n"
+        "                          luban-spawned cmake/cl.exe just works\n"
+        "                          (Phase 1: in-process injection only;\n"
+        "                          fresh shells still need vcvarsall).\n"
+        "                          Default --arch is x64.\n"
+        "  --msvc-clear            Forget the captured MSVC env.";
+    c.flags = {"user", "unset-user", "print", "msvc-init", "msvc-clear"};
+    c.opts = {{"shell", ""}, {"arch", ""}};
     c.examples = {
         "luban env\tShow current env state",
         "luban env --user\tOne-time HKCU PATH registration (rustup-style)",
         "luban env --unset-user\tUndo the above + clean legacy vars",
         "luban env --print --shell bash\tEmit `export ...` lines for `eval`",
+        "luban env --msvc-init\tCapture vcvarsall env (requires VS installed)",
     };
     c.run = run_env;
     cli::register_subcommand(std::move(c));

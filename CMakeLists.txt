@@ -39,6 +39,7 @@ set(LUBAN_SOURCES
     src/lib_targets.cpp
     src/luban_cmake_gen.cpp
     src/perception.cpp
+    src/msvc_env.cpp
     third_party/miniz.c
     src/commands/doctor.cpp
     src/commands/env.cpp

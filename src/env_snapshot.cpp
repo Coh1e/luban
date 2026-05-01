@@ -5,6 +5,7 @@
 #include <set>
 #include <string>
 
+#include "msvc_env.hpp"
 #include "paths.hpp"
 #include "registry.hpp"
 
@@ -54,6 +55,24 @@ std::vector<fs::path> path_dirs() {
         }
     }
     add(paths::bin_dir());
+
+    // MSVC tool dirs (when --msvc-init has been run). Without these,
+    // which_search wouldn't be able to resolve `luban run cl ...` even
+    // though apply_to puts them on PATH for the spawned cmake. Splitting
+    // path_addition by ';' (Windows separator) into individual entries.
+    if (auto cap = msvc_env::load(); cap && !cap->path_addition.empty()) {
+        std::string s = cap->path_addition;
+        size_t start = 0;
+        while (start <= s.size()) {
+            size_t end = s.find(';', start);
+            if (end == std::string::npos) end = s.size();
+            std::string dir = s.substr(start, end - start);
+            if (!dir.empty()) add(fs::path(dir));
+            if (end == s.size()) break;
+            start = end + 1;
+        }
+    }
+
     return ordered;
 }
 
@@ -94,11 +113,24 @@ std::vector<std::pair<std::string, std::string>> env_dict() {
                          (paths::config_dir() / "emscripten" / "config").string());
     }
 
+    // MSVC: if the user ran `luban env --msvc-init`, the captured INCLUDE /
+    // LIB / LIBPATH / WindowsSdk* / VCToolsInstallDir / etc. live in
+    // <state>/msvc-env.json. Merge them so luban-spawned cmake can drive
+    // cl.exe without the user sourcing vcvarsall first. PATH addition is
+    // handled separately in apply_to() so it merges cleanly with luban's
+    // own PATH overlay.
+    if (auto cap = msvc_env::load()) {
+        for (auto& [k, v] : cap->vars) out.emplace_back(k, v);
+    }
+
     return out;
 }
 
 std::map<std::string, std::string> apply_to(const std::map<std::string, std::string>& env) {
     std::map<std::string, std::string> out;
+
+    // path_dirs() already includes MSVC tool dirs when --msvc-init has been
+    // run, so we just join + prepend onto whatever PATH the caller had.
     auto extras = path_dirs();
     if (!extras.empty()) {
         std::string joined;
@@ -106,9 +138,9 @@ std::map<std::string, std::string> apply_to(const std::map<std::string, std::str
             if (i) joined.push_back(kPathSep);
             joined += extras[i].string();
         }
-        // 找 existing PATH：先看 env 参数；没有就读当前进程 env。
-        // 这一行很关键 — 否则 child cmake 看不到 C:\Windows\System32 之类系统路径，
-        // vcpkg/cmake 调 ninja 等会找不到 build program。
+        // existing PATH: env arg first, fall back to current process env.
+        // Critical — child cmake / vcpkg need C:\Windows\System32 etc. to
+        // find ninja / system DLLs.
         std::string existing;
         auto it = env.find("PATH");
         if (it != env.end()) {
