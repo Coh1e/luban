@@ -31,8 +31,3 @@ desktop.ini
 
 # Claude Code local settings (per-machine)
 .claude/settings.local.json
-
-# Design / governance docs WIP — commit when finalized (see plan)
-docs/specs/
-AGENTS.md
-CONTRIBUTING.md
