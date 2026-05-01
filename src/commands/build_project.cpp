@@ -16,6 +16,7 @@
 #include "../env_snapshot.hpp"
 #include "json.hpp"
 #include "../log.hpp"
+#include "../luban_toml.hpp"
 #include "../paths.hpp"
 #include "../proc.hpp"
 #include "../registry.hpp"
@@ -128,6 +129,40 @@ bool is_wasm_preset(const std::string& p) {
     return p == "wasm" || p == "wasm-debug";
 }
 
+// OQ-2: per-project toolchain version pin check. Reads `[toolchain]` from
+// the project's luban.toml and compares each entry to the installed registry.
+// Empty pins map → no-op. Mismatches log a warning and continue (we don't
+// hard-fail; the user may have intentionally upgraded). Unknown components
+// (in pins but not in installed.json) also warn — they signal either a typo
+// or a missing `luban setup`.
+//
+// This runs *before* cmake so the warnings surface above the configure noise
+// rather than getting buried under it.
+void check_toolchain_pins(const fs::path& project) {
+    fs::path toml_path = project / "luban.toml";
+    std::error_code ec;
+    if (!fs::exists(toml_path, ec)) return;  // no luban.toml → no pins
+
+    auto cfg = luban::luban_toml::load(toml_path);
+    if (cfg.toolchain.empty()) return;       // no [toolchain] section → no-op
+
+    auto installed = registry::load_installed();
+    for (auto const& [name, want] : cfg.toolchain) {
+        auto it = installed.find(name);
+        if (it == installed.end()) {
+            log::warnf("luban.toml [toolchain] pins {} = \"{}\", but {} is not installed. "
+                       "Run: luban setup --with {}", name, want, name, name);
+            continue;
+        }
+        std::string have = it->second.version;
+        if (have != want) {
+            log::warnf("luban.toml [toolchain] pins {} = \"{}\", but installed is \"{}\". "
+                       "Build proceeds; reinstall the component to match.",
+                       name, want, have);
+        }
+    }
+}
+
 int run_build(const cli::ParsedArgs& args) {
     fs::path project_arg = args.opts.count("at") ? fs::path(args.opts.at("at")) : fs::current_path();
     std::error_code ec;
@@ -136,6 +171,8 @@ int run_build(const cli::ParsedArgs& args) {
         log::errf("no CMakeLists.txt in {}", project.string());
         return 2;
     }
+
+    check_toolchain_pins(project);
 
     std::string cmake = cmake_exe();
     // 用户没传 --preset 时（默认值 "auto"）智能挑选；显式传了用显式值。

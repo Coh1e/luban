@@ -25,9 +25,6 @@ WarningLevel parse_warnings(std::string_view s) {
 // 14/11 are too old to be worth supporting from `luban new`. 26 isn't yet
 // universally available across MinGW/clang releases — revisit when the
 // compiler we ship lands -std=c++26 by default.
-constexpr int kMinCpp = 17;
-constexpr int kMaxCpp = 23;
-
 bool cpp_supported(int n) {
     return n == 17 || n == 20 || n == 23;
 }
@@ -70,6 +67,30 @@ void load_from_table(const ::toml::table& tbl, Config& out) {
                     out.scaffold.sanitizers.push_back(*s);
                 }
             }
+        }
+    }
+
+    // [toolchain] — flat string→string map of component → required version.
+    // Per OQ-2, this is opt-in: missing section = no pins. Each key parses
+    // as a string (we accept integer values too, for cases like cmake = 423
+    // typo — coerce to "423"). Unknown component names are accepted silently;
+    // the runtime check (commands/build_project.cpp) maps them against the
+    // installed registry and warns there.
+    if (auto* tc = tbl["toolchain"].as_table()) {
+        for (auto&& [key, node] : *tc) {
+            // Explicit is_string / is_integer checks — toml++'s
+            // value<int64_t>() will silently coerce a boolean to 0/1, which
+            // is not a sensible version pin. Same for arrays/tables/dates.
+            std::string version_str;
+            if (node.is_string()) {
+                version_str = *node.value<std::string>();
+            } else if (node.is_integer()) {
+                version_str = std::to_string(*node.value<int64_t>());
+            } else {
+                continue;  // silently skip bool/array/table/date/float
+            }
+            if (version_str.empty()) continue;
+            out.toolchain[std::string(key.str())] = std::move(version_str);
         }
     }
 }
