@@ -91,6 +91,16 @@ jobs:
           .\build\release\luban.exe --version
           .\build\release\luban.exe --help
 
+      # ---- Unit tests (doctest, ADR-0004) ----
+      # luban-tests is EXCLUDE_FROM_ALL so we build it explicitly. The
+      # binary self-runs all TEST_CASE blocks; non-zero exit on any failure.
+      - name: Build luban-tests
+        shell: pwsh
+        run: cmake --build --preset release --target luban-tests
+      - name: Run luban-tests
+        shell: pwsh
+        run: .\build\release\luban-tests.exe
+
       # ---- Smoke test (end-to-end) ----
       # 9 steps covering scaffold → add/remove → build → run → specs →
       # target add/build/remove → doctor. Uses the LLVM-MinGW + ninja +

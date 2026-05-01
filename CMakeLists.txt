@@ -130,3 +130,46 @@ if(WIN32)
     target_compile_definitions(luban-shim PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(luban-shim PRIVATE shell32)
 endif()
+
+# ---- luban-tests : doctest unit tests (ADR-0004) ----
+# EXCLUDE_FROM_ALL so default `cmake --build` doesn't compile tests; opt in
+# via `cmake --build --target luban-tests`. Per-module test files live under
+# tests/ and pull in only the leaf modules they actually exercise (log,
+# lib_targets, hash, luban_toml, paths) — keeps the test binary small and
+# the link surface tight.
+option(LUBAN_BUILD_TESTS "Define luban-tests target (excluded from ALL)" ON)
+if(LUBAN_BUILD_TESTS)
+    add_executable(luban-tests EXCLUDE_FROM_ALL
+        tests/test_main.cpp
+        tests/test_hash.cpp
+        tests/test_lib_targets.cpp
+        tests/test_luban_toml.cpp
+        # Leaf production sources we exercise. NOT main.cpp / cli.cpp /
+        # commands/ — those are integration territory (smoke.bat covers
+        # them end-to-end).
+        src/log.cpp
+        src/lib_targets.cpp
+        src/hash.cpp
+        src/luban_toml.cpp
+        src/paths.cpp
+    )
+    target_include_directories(luban-tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/third_party
+        ${CMAKE_BINARY_DIR}/gen
+    )
+    if(MSVC)
+        target_compile_options(luban-tests PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(luban-tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
+        # Static-link to keep the test binary portable across runners
+        # (CI image, dev shells via git-bash) and avoid runtime DLL
+        # discovery surprises.
+        target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+    if(WIN32)
+        target_link_libraries(luban-tests PRIVATE shell32 ole32 advapi32 bcrypt)
+        target_compile_definitions(luban-tests PRIVATE
+            UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    endif()
+endif()
