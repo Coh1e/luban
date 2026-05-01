@@ -119,15 +119,21 @@ endif()
 # Hard-linked into <data>/bin/<alias>.exe for every alias. Reads its own
 # filename + .shim-table.json sibling to discover target exe, then
 # CreateProcessW. Static-linked, ~200 KB.
-add_executable(luban-shim src/shim_exe/main.cpp)
-target_include_directories(luban-shim PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
-
-if(NOT MSVC)
-    target_compile_options(luban-shim PRIVATE -Wall -Wextra)
-    target_link_options(luban-shim PRIVATE -static -static-libgcc -static-libstdc++)
-endif()
-
+#
+# Windows-only: the shim model exists because PATH alias resolution on
+# Windows requires a real .exe (search picks the first .exe matching name,
+# .cmd shims are ignored by tools that use CreateProcess directly). On
+# POSIX, alias resolution via PATH already works for plain symlinks, so
+# luban-shim.exe is unneeded — see docs/specs/decisions/ADR-0006-posix-port.md.
 if(WIN32)
+    add_executable(luban-shim src/shim_exe/main.cpp)
+    target_include_directories(luban-shim PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+
+    if(NOT MSVC)
+        target_compile_options(luban-shim PRIVATE -Wall -Wextra)
+        target_link_options(luban-shim PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+
     target_compile_definitions(luban-shim PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(luban-shim PRIVATE shell32)
 endif()
