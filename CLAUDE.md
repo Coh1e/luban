@@ -34,8 +34,14 @@ build\default\luban.exe --help          :: smoke
 build\release\luban.exe --version       :: smoke
 ```
 
-There is no separate test target yet (M3+); smoke-testing is `luban.exe doctor`
-+ exercising verbs against a temp project.
+Unit tests (doctest, ADR-0004): `cmake --build --preset release --target luban-tests`
+then `./build/release/luban-tests.exe`. ~40 cases / ~110 assertions covering
+hash, lib_targets, luban_toml, and marker_block (AGENTS.md engine). Tests
+are EXCLUDE_FROM_ALL — default `cmake --build` skips them.
+
+End-to-end smoke: `scripts/smoke.bat` runs 9 steps (new → add/remove → build
+→ run → specs → target add/build/remove → doctor) without vcpkg network.
+Both run on every CI build.
 
 ## Repo layout (essential)
 
@@ -105,7 +111,7 @@ why-cmake-module}.md`.
 ### Add a vcpkg port → cmake target mapping
 
 Edit `src/lib_targets.cpp` table. Each row: `{port, find_package_name,
-{target1, target2, ...}}`. ~125 popular libs already there (rolling); PR welcome.
+{target1, target2, ...}}`. ~224 popular libs already there (rolling); PR welcome.
 
 ### Add a new bootstrappable component (e.g., a new toolchain)
 
@@ -161,9 +167,10 @@ luban shim          :: rewrites .cmd/.ps1/sh + .exe (hard-linked) + .shim-table.
 - **Domain is `coh1e.com`** (not cho1e.com — that was a recovered typo
   from early DNS setup; verify by `gh api repos/Coh1e/luban/pages` →
   `cname` field).
-- **Smoke test exes not in repo**: anything under `tests/*.cpp` referencing
-  smoke binaries (`hash_smoke.cpp` etc.) was deleted post-validation. Don't
-  resurrect; use `doctest` or similar when adding real tests.
+- **Tests use vendored doctest** (ADR-0004): one `tests/test_<module>.cpp` per
+  leaf module under `src/`. Add new tests to the `LUBAN_BUILD_TESTS` block in
+  `CMakeLists.txt`. Don't resurrect the old `*_smoke.cpp` binaries — those
+  were one-off validation programs from M2.
 
 ## Where to read more
 
