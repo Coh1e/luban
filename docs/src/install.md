@@ -11,13 +11,27 @@ That's it. No Python, no Visual Studio, no Chocolatey/Scoop, nothing pre-install
 
 ## Pick your install style
 
-### Option A — drop the binary anywhere
+### Option A — one-line install (recommended)
 
-1. Download `luban.exe` from the [GitHub Releases](https://github.com/Coh1e/luban/releases) page.
-2. Save it somewhere you'll remember — e.g. `%USERPROFILE%\bin\luban.exe`.
-3. From the next step you can run it via full path or have it on PATH (Option C below).
+```powershell
+irm https://luban.coh1e.com/install.ps1 | iex
+```
 
-### Option B — build from source
+The installer drops `luban.exe` and `luban-shim.exe` into `~/.local/bin/`
+(XDG-style, shared with uv / pipx / claude-code), verifies SHA256 against
+the published `SHA256SUMS`, and prompts you to run `luban env --user` and
+`luban setup` for a complete bootstrap.
+
+Override the install dir with `$env:LUBAN_INSTALL_DIR` before piping.
+
+### Option B — manual download
+
+1. Download `luban.exe` and `luban-shim.exe` from the [GitHub Releases](https://github.com/Coh1e/luban/releases) page.
+2. Drop both into `%USERPROFILE%\.local\bin\` (or anywhere on your PATH).
+3. Run `luban env --user` to register `<data>/bin` (toolchain shim dir) on
+   HKCU PATH, then `luban setup` to install the default toolchain.
+
+### Option C — build from source
 
 If you already have a C++ toolchain (MSVC, MinGW, Clang) with cmake + ninja:
 
@@ -31,20 +45,18 @@ cmake --build --preset default
 
 You can then use this freshly-built `luban.exe` to install Luban-managed toolchains.
 
-### Option C — bootstrap fully from a single binary
+### Bootstrap to a working environment
+
+After Option A or B has dropped luban into `~/.local/bin/`:
 
 ```bat
-luban.exe setup            :: installs LLVM-MinGW 22, cmake 4.3, ninja 1.13, mingit 2.54, vcpkg 2026.03
-luban.exe env --user       :: rustup-style HKCU PATH integration (one-time)
+luban setup                :: installs LLVM-MinGW, cmake, ninja, mingit, vcpkg
+luban env --user           :: rustup-style HKCU PATH integration (one-time)
 ```
 
-After this, *any new shell* has cmake / clang / clangd / ninja / git / vcpkg on PATH. You'll never need to source an activate script again.
-
-> **Tip:** After `luban env --user`, copy `luban.exe` itself into `<data>\bin\` so it's also on PATH:
->
-> ```bat
-> copy luban.exe %LOCALAPPDATA%\luban\bin\luban.exe
-> ```
+After this, *any new shell* has cmake / clang / clangd / ninja / git / vcpkg
+on PATH. The luban.exe in `~/.local/bin/` is your control plane; toolchain
+shims live in `<data>/bin/` (added to PATH by `env --user`, cargo style).
 
 ## Verify
 
@@ -76,33 +88,42 @@ If any tool says `(not found)` after `luban env --user`, **open a fresh terminal
 ## What's installed and where
 
 ```
+%USERPROFILE%\.local\bin\               # XDG user bin (luban.exe + luban-shim.exe live here,
+                                        # alongside uv / pipx / claude-code / etc.)
+
 %LOCALAPPDATA%\luban\
   toolchains\
-    cmake-4.3.2-x86_64\          # cmake.exe + share/cmake-4.3
-    llvm-mingw-20260421-x86_64\  # clang/clang++/clangd/lld/libc++ + sysroot
+    cmake-4.3.2-x86_64\                 # cmake.exe + share/cmake-4.3
+    llvm-mingw-20260421-x86_64\         # clang/clang++/clangd/lld/libc++ + sysroot
     ninja-1.13.2-x86_64\
     mingit-2.54.0-x86_64\
-    vcpkg-2026.03.18-x86_64\     # ports tree + vcpkg.exe
-  bin\                            # rustup-style shim dir (on PATH after env --user)
-    cmake.cmd / cmake.ps1 / cmake     # 280+ alias shims
-  env\                            # generated activate scripts
-    activate.cmd / .ps1 / .sh
-%USERPROFILE%\.cache\luban\downloads\    # archive cache
-%USERPROFILE%\.local\state\luban\        # installed.json (component registry)
-%USERPROFILE%\.config\luban\             # selection.json (which components to install)
+    vcpkg-2026.03.18-x86_64\            # ports tree + vcpkg.exe
+  bin\                                  # luban-managed shim dir (on PATH after env --user;
+    cmake.cmd / cmake.exe / ...         # cargo's ~/.cargo/bin/ pattern). 280+ alias shims.
+%USERPROFILE%\.cache\luban\downloads\   # archive cache
+%USERPROFILE%\.cache\luban\vcpkg\       # vcpkg downloads + binary cache (XDG-respecting)
+%USERPROFILE%\.local\state\luban\       # installed.json (component registry)
+%USERPROFILE%\.config\luban\            # selection.json + emscripten config
 ```
 
 See [XDG-first directory layout](./reference/paths.md) for the full spec.
 
 ## Uninstall
 
+One command:
+
 ```bat
-luban env --unset-user                          :: remove from HKCU PATH/env
-rmdir /S /Q %LOCALAPPDATA%\luban                :: ~250 MB of toolchains gone
-rmdir /S /Q %USERPROFILE%\.cache\luban
-rmdir /S /Q %USERPROFILE%\.local\state\luban
-rmdir /S /Q %USERPROFILE%\.config\luban
-del luban.exe                                   :: wherever you put it
+luban self uninstall --yes
 ```
 
-Luban never writes outside these directories. There is no Windows Registry persistence beyond HKCU PATH/env (cleaned up by `luban env --unset-user`).
+That removes HKCU PATH/env entries, wipes
+`%LOCALAPPDATA%\luban\` / `%USERPROFILE%\.cache\luban\` /
+`%USERPROFILE%\.local\state\luban\` / `%USERPROFILE%\.config\luban\`,
+and schedules `luban.exe` + `luban-shim.exe` for self-delete (~1.5s).
+
+Add `--keep-data` to preserve toolchains on disk and only undo the HKCU
+env injection.
+
+Luban never writes outside the directories listed above. There is no
+Windows Registry persistence beyond HKCU PATH / VCPKG_ROOT / EM_CONFIG
+(cleaned up by `luban env --unset-user` or `luban self uninstall`).

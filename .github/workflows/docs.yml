@@ -8,6 +8,8 @@ on:
       - "src/**"
       - "third_party/**"
       - "README.md"
+      - "install.ps1"
+      - "install.sh"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -52,7 +54,8 @@ jobs:
           mkdir -p ../build/docs/api
           doxygen Doxyfile
 
-      # ---- Combine: mdBook at /, Chinese mdBook at /zh/, Doxygen at /api/ ----
+      # ---- Combine: mdBook at /, Chinese mdBook at /zh/, Doxygen at /api/,
+      # install scripts at /install.{ps1,sh} so `irm | iex` URLs work ----
       - name: Stage combined site
         run: |
           mkdir -p _site
@@ -61,6 +64,8 @@ jobs:
           cp -r docs/book-zh/. _site/zh/
           mkdir -p _site/api
           cp -r build/docs/api/. _site/api/
+          cp install.ps1 _site/install.ps1
+          cp install.sh  _site/install.sh
 
       # ---- Deploy to gh-pages branch (Cloudflare Pages reads this) ----
       - name: Deploy to gh-pages

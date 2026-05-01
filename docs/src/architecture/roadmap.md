@@ -37,7 +37,7 @@ The "user-facing" half of luban's value:
 | `luban describe --json` | Machine-readable project + system state for IDE plugins |
 | `luban run <cmd> [args...]` | uv-style transparent activation + exec |
 | Real `.exe` shim | rustup-style native exe proxies, replacing `.cmd` shims |
-| `luban-init.exe` mode | Standalone bootstrapper (~5 MB) — alternative entry to `luban setup` |
+| Shell installer | ✅ Done — `irm https://luban.coh1e.com/install.ps1 \| iex` (uv-style); replaces the previously-planned `luban-init.exe` (rejected: luban.exe is already a single self-contained binary, see ADR-0001 alt D) |
 | `luban toolchain {list,use,install}` | Multi-version toolchain management |
 
 ## 🌅 M4+ — Beyond the immediate need
