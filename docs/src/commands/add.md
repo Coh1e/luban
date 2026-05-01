@@ -91,7 +91,7 @@ This is enforced for: `cmake`, `ninja`, `clang`, `clang++`, `clangd`, `clang-for
 
 ## When the cmake target name is wrong
 
-`luban add` uses a curated `vcpkg port → cmake target` mapping (~50 popular libs). For a library not in the table, luban falls back to `find_package(<port> CONFIG REQUIRED)` and **does not** auto-link it. You'll need to:
+`luban add` uses a curated `vcpkg port → cmake target` mapping (~224 popular libs). For a library not in the table, luban falls back to `find_package(<port> CONFIG REQUIRED)` and **does not** auto-link it. You'll need to:
 
 1. Look up the cmake target name in vcpkg's [usage file](https://vcpkg.io/en/packages.html) (after first `luban build` they're in `vcpkg_installed/<triplet>/share/<pkg>/usage`)
 2. Add `target_link_libraries(<your-target> PRIVATE <Mod>::<target>)` in your `src/<target>/CMakeLists.txt`

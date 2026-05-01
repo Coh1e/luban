@@ -24,11 +24,11 @@ The "user-facing" half of luban's value:
 - `luban target add` / `luban target remove` (multi-target)
 - `luban.cmake` generator (find_package, luban_apply, luban_register_targets)
 - `luban.toml` schema v1 ([project], [scaffold])
-- Curated pkg → cmake target mapping (~50 popular libraries)
+- Curated pkg → cmake target mapping (started at ~50, now ~224)
 - Scaffold improvements: subdir-from-day-1, vcpkg-configuration.json baseline
 - `luban env --user` extended to set HKCU env vars (LUBAN_*, VCPKG_ROOT)
 
-## 🔜 M3 — Daily-driver polish
+## ✅ M3 — Daily-driver polish (shipped, v0.2/v0.3)
 
 | Feature | Notes |
 |---|---|
@@ -36,9 +36,17 @@ The "user-facing" half of luban's value:
 | `luban which <alias>` | Show absolute exe path for a registry alias |
 | `luban describe --json` | Machine-readable project + system state for IDE plugins |
 | `luban run <cmd> [args...]` | uv-style transparent activation + exec |
-| Real `.exe` shim | rustup-style native exe proxies, replacing `.cmd` shims |
-| Shell installer | ✅ Done — `irm https://luban.coh1e.com/install.ps1 \| iex` (uv-style); replaces the previously-planned `luban-init.exe` (rejected: luban.exe is already a single self-contained binary, see ADR-0001 alt D) |
-| `luban toolchain {list,use,install}` | Multi-version toolchain management |
+| Real `.exe` shim | rustup-style native exe proxies alongside `.cmd` shims |
+| Shell installer | `irm https://luban.coh1e.com/install.ps1 \| iex` (uv-style); replaces the previously-planned `luban-init.exe` (rejected: luban.exe is already a single self-contained binary, see ADR-0001 alt D) |
+| `luban doc` | Doxygen wrapper, cargo doc-style |
+| `luban specs` | SAGE / AGENTS.md scaffolding for AI agents (ADR-0003) |
+| `luban completion <shell>` | clink + bash + zsh + fish + powershell |
+| `luban env --msvc-init` | vswhere + vcvarsall env capture; HKCU writeback in Phase 2 |
+| `luban doctor --strict --json` | CI-gateable strict mode + machine-readable JSON |
+| Per-project toolchain pin | `luban.toml [toolchain]` map, `luban build` warns on mismatch (Phase 1) |
+| Chunked Range download | 4-thread parallel HTTP downloads in component install |
+| Unit tests | doctest vendored (ADR-0004); 40 cases / 110 assertions |
+| Multi-target build | `luban new --target=wasm` (emscripten path) |
 
 ## 🌅 M4+ — Beyond the immediate need
 

@@ -172,7 +172,7 @@ uv-style.
 - **The `.cmake`-module model** assumes users will `include(luban.cmake)`.
   If they don't, none of the auto-find_package magic happens — they fall
   through to plain cmake. This is by design.
-- **Curated pkg→target mapping.** `luban add` knows ~50 popular libs by
+- **Curated pkg→target mapping.** `luban add` knows ~224 popular libs by
   name. Unknown ports get `find_package(<port>)` written but no auto-link;
   user fills target name in. Long tail handled by future scraping of
   vcpkg's `usage` files.

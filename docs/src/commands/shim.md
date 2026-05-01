@@ -26,5 +26,5 @@ Plus mode-bits: the sh-script is `chmod +x` on POSIX, harmless on Windows.
 
 ## Notes
 
-- M3 will replace `.cmd` shims with real `.exe` proxies (rustup-style). That'll let cmake's compiler probe accept the shim as a "real" cmake/clang.
-- Until then, cmake's compiler-detect uses absolute paths (we point CMakePresets at the toolchain bin directly), and the `.cmd` shims are for interactive shell use.
+- As of v0.2, real `.exe` proxies (hard-linked to `luban-shim.exe`, rustup-style) are written alongside each `.cmd` shim. cmake's compiler-detect now sees them as "real" cmake/clang.
+- The `.cmd` shims remain for interactive shell use (faster start than going via the proxy when launched from cmd directly).

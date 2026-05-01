@@ -75,7 +75,17 @@ docs/                      # this site (mdBook + Doxygen)
 
 ## Testing
 
-Currently smoke-test driven (`luban setup --only ninja --force` end-to-end). M3 will add a `tests/` dir with `doctest`-based unit tests for pure-compute modules (paths, scoop_manifest, hash, archive).
+Two layers, both run in CI:
+
+- **Unit tests** (doctest, ADR-0004) — `tests/test_<module>.cpp` per leaf module
+  (currently `hash`, `lib_targets`, `luban_toml`, `marker_block`). Build with
+  `cmake --build --preset release --target luban-tests` then run
+  `./build/release/luban-tests.exe`. ~40 cases / ~110 assertions.
+- **End-to-end smoke** — `scripts/smoke.bat` exercises `new → add/remove → build →
+  run → specs → target add/build/remove → doctor`. Zero vcpkg network dependency.
+
+Add new tests in the `LUBAN_BUILD_TESTS` block in `CMakeLists.txt`. Pure-compute
+modules (paths, scoop_manifest, archive) are good candidates for the next round.
 
 ## Where to start
 

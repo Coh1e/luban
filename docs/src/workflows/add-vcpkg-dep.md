@@ -52,7 +52,7 @@ Each adds the correct `Boost::<sublib>` cmake target via Luban's curated mapping
 
 ## When the cmake target name is wrong
 
-Luban's table covers ~50 popular libs. For uncovered libs, Luban writes `find_package(<port>)` but **doesn't auto-link**. After first `luban build`, find the target name in `vcpkg_installed/<triplet>/share/<pkg>/usage`, then:
+Luban's table covers ~224 popular libs. For uncovered libs, Luban writes `find_package(<port>)` but **doesn't auto-link**. After first `luban build`, find the target name in `vcpkg_installed/<triplet>/share/<pkg>/usage`, then:
 
 ```cmake
 # in src/<your-target>/CMakeLists.txt
