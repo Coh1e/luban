@@ -248,6 +248,28 @@ ResolvedManifest parse(const json& manifest,
             name, url));
     }
 
+    // luban-specific extension: `luban_mirrors` is an array of fallback URLs
+    // tried after `url` fails. Useful for mirror sites under restricted
+    // networks (e.g., ghproxy.com prefixing GitHub release URLs). Hash
+    // verification still applies — same bytes regardless of source.
+    std::vector<std::string> mirrors;
+    auto pick_mirrors = [&]() -> json {
+        if (arch_block && arch_block->contains("luban_mirrors")) return (*arch_block)["luban_mirrors"];
+        if (manifest.contains("luban_mirrors")) return manifest["luban_mirrors"];
+        return json(nullptr);
+    };
+    if (json m = pick_mirrors(); m.is_array()) {
+        for (auto& el : m) {
+            if (!el.is_string()) continue;
+            std::string s = trim(el.get<std::string>());
+            if (s.empty()) continue;
+            // Same '#dest.zip' rename suffix as primary URL — strip if present.
+            auto h = s.find('#');
+            if (h != std::string::npos) s = s.substr(0, h);
+            mirrors.push_back(std::move(s));
+        }
+    }
+
     return ResolvedManifest{
         .name = name,
         .version = version,
@@ -260,6 +282,7 @@ ResolvedManifest parse(const json& manifest,
         .env_add_path = std::move(env_add_path),
         .depends = std::move(depends),
         .architecture = arch,
+        .mirrors = std::move(mirrors),
     };
 }
 

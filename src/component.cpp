@@ -181,12 +181,35 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
         opts.label = archive_name;
         opts.retries = 3;
         opts.timeout_seconds = 60;
-        log::stepf("download {}", archive_name);
-        auto dl = download::download(parsed.url, archive_path, opts);
-        if (!dl) {
-            ErrorKind k = (dl.error().kind == download::ErrorKind::HashMismatch)
-                ? ErrorKind::HashMismatch : ErrorKind::DownloadFailed;
-            return std::unexpected(Error{k, dl.error().message});
+
+        // Try the canonical URL, then each mirror in order. A hash mismatch
+        // is FATAL (don't iterate to mirrors — that means the published hash
+        // is wrong, and trying mirrors won't help). Network errors fall
+        // through to the next URL. Same hash applies to whichever URL serves.
+        std::vector<std::string> candidates = {parsed.url};
+        for (auto& m : parsed.mirrors) candidates.push_back(m);
+
+        std::optional<download::Error> last_error;
+        bool ok = false;
+        for (size_t i = 0; i < candidates.size(); ++i) {
+            log::stepf("download {} ({} of {}): {}",
+                       archive_name, i + 1, candidates.size(), candidates[i]);
+            auto dl = download::download(candidates[i], archive_path, opts);
+            if (dl) { ok = true; break; }
+            last_error = dl.error();
+            if (dl.error().kind == download::ErrorKind::HashMismatch) {
+                // Bytes mismatched the expected hash — don't try mirrors,
+                // that's a manifest bug. Return immediately.
+                return std::unexpected(Error{ErrorKind::HashMismatch, dl.error().message});
+            }
+            if (i + 1 < candidates.size()) {
+                log::warnf("  failed: {}; trying next mirror", dl.error().message);
+            }
+        }
+        if (!ok) {
+            return std::unexpected(Error{ErrorKind::DownloadFailed,
+                last_error ? last_error->message
+                           : std::string("all mirrors failed")});
         }
     }
 

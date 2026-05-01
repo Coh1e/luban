@@ -42,6 +42,12 @@ struct ResolvedManifest {
     std::vector<std::string> env_add_path;
     std::vector<std::string> depends;
     std::string architecture = "x86_64";
+
+    // Luban-specific extension (Scoop ignores this field). Fallback URLs to
+    // try if `url` fails — useful for mirror sites (e.g., ghproxy.com for
+    // GitHub releases under restricted networks). Tried in order. The same
+    // hash is verified against whichever URL succeeds.
+    std::vector<std::string> mirrors;
 };
 
 // 从已 parse 好的 JSON 树提取——`name` 用于错误信息，`arch` 选 architecture 段
