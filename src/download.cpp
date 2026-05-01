@@ -1,10 +1,12 @@
 #include "download.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <vector>
@@ -260,6 +262,271 @@ std::expected<int64_t, Error> do_request(
     return done;
 }
 
+// ---- HEAD probe + chunked Range download (Phase 14b) -----------------------
+//
+// Decision tree (in download() below):
+//   parallel_chunks <= 1            → single-stream (do_request)
+//   HEAD fails OR no Content-Length → single-stream (caller doesn't know size)
+//   no Accept-Ranges: bytes header  → single-stream (server can't slice)
+//   Content-Length < threshold      → single-stream (overhead > benefit)
+//   else                            → download_chunked
+//
+// Chunked path opens one WinHttp session per worker thread (handles aren't
+// thread-safe), each fetches `Range: bytes=<lo>-<hi>` and writes to its slice
+// of a pre-allocated output file. Hash verification runs once at the end via
+// hash::verify_file (re-reads the file) since concurrent writers can't share
+// a streaming-hash state.
+
+struct HeadInfo {
+    int64_t content_length = -1;       // -1 if header missing / unparseable
+    bool accepts_ranges = false;       // true iff `Accept-Ranges: bytes`
+};
+
+// HEAD probe. Same WinHttp shape as do_request but with method=HEAD and we
+// only inspect headers (no body to read). Failures yield `nullopt` so the
+// caller can gracefully fall back to single-stream.
+std::optional<HeadInfo> head_info(const std::string& url, int timeout_seconds) {
+    auto p = parse_url(url);
+    if (!p) return std::nullopt;
+
+    HttpHandle session;
+    session.h = WinHttpOpen(user_agent().c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session.h) return std::nullopt;
+    int ms = timeout_seconds * 1000;
+    WinHttpSetTimeouts(session.h, ms, ms, ms, ms);
+
+    HttpHandle conn;
+    conn.h = WinHttpConnect(session.h, p->host.c_str(), p->port, 0);
+    if (!conn.h) return std::nullopt;
+
+    HttpHandle req;
+    DWORD flags = p->secure ? WINHTTP_FLAG_SECURE : 0;
+    req.h = WinHttpOpenRequest(conn.h, L"HEAD", p->path.c_str(), nullptr,
+                               WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!req.h) return std::nullopt;
+
+    DWORD redir = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(req.h, WINHTTP_OPTION_REDIRECT_POLICY, &redir, sizeof(redir));
+
+    if (!WinHttpSendRequest(req.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+        return std::nullopt;
+    if (!WinHttpReceiveResponse(req.h, nullptr)) return std::nullopt;
+
+    DWORD status = 0;
+    DWORD slen = sizeof(status);
+    WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &slen,
+                        WINHTTP_NO_HEADER_INDEX);
+    if (status >= 400) return std::nullopt;
+
+    HeadInfo h;
+    {
+        wchar_t cl[64] = {0};
+        DWORD cllen = sizeof(cl);
+        if (WinHttpQueryHeaders(req.h, WINHTTP_QUERY_CONTENT_LENGTH,
+                                WINHTTP_HEADER_NAME_BY_INDEX, cl, &cllen,
+                                WINHTTP_NO_HEADER_INDEX)) {
+            try { h.content_length = std::stoll(win::to_utf8(cl)); }
+            catch (...) { h.content_length = -1; }
+        }
+    }
+    {
+        wchar_t ar[64] = {0};
+        DWORD arlen = sizeof(ar);
+        // WINHTTP_QUERY_ACCEPT_RANGES = 0x0027 — well-known header index.
+        if (WinHttpQueryHeaders(req.h, WINHTTP_QUERY_ACCEPT_RANGES,
+                                WINHTTP_HEADER_NAME_BY_INDEX, ar, &arlen,
+                                WINHTTP_NO_HEADER_INDEX)) {
+            std::string v = win::to_utf8(std::wstring(ar, arlen / sizeof(wchar_t)));
+            // "bytes" or "bytes,foo" → supports byte ranges. "none" → no.
+            for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (v.find("bytes") != std::string::npos) h.accepts_ranges = true;
+        }
+    }
+    return h;
+}
+
+// Fetch one byte range [lo, hi] (inclusive on both ends per RFC 7233) and
+// write it directly into `dest` at offset `lo`. Each call creates its own
+// WinHttp + file handles so it's safe to run from multiple threads.
+//
+// Returns the number of bytes actually written, or an error.
+std::expected<int64_t, Error> download_range_to_file(
+    const std::string& url, const fs::path& dest,
+    int64_t lo, int64_t hi, int timeout_seconds)
+{
+    auto p = parse_url(url);
+    if (!p) return std::unexpected(Error{ErrorKind::Network, "invalid URL: " + url});
+
+    HttpHandle session;
+    session.h = WinHttpOpen(user_agent().c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpOpen failed"});
+    int ms = timeout_seconds * 1000;
+    WinHttpSetTimeouts(session.h, ms, ms, ms, ms);
+
+    HttpHandle conn;
+    conn.h = WinHttpConnect(session.h, p->host.c_str(), p->port, 0);
+    if (!conn.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpConnect failed"});
+
+    HttpHandle req;
+    DWORD flags = p->secure ? WINHTTP_FLAG_SECURE : 0;
+    req.h = WinHttpOpenRequest(conn.h, L"GET", p->path.c_str(), nullptr,
+                               WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!req.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpOpenRequest failed"});
+
+    DWORD redir = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(req.h, WINHTTP_OPTION_REDIRECT_POLICY, &redir, sizeof(redir));
+
+    // Range header. RFC 7233 inclusive on both sides.
+    std::wstring range_hdr = L"Range: bytes=" +
+        std::to_wstring(lo) + L"-" + std::to_wstring(hi);
+    if (!WinHttpAddRequestHeaders(req.h, range_hdr.c_str(),
+                                  static_cast<DWORD>(range_hdr.size()),
+                                  WINHTTP_ADDREQ_FLAG_ADD)) {
+        return std::unexpected(Error{ErrorKind::Network, "WinHttpAddRequestHeaders Range failed"});
+    }
+
+    if (!WinHttpSendRequest(req.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+        return std::unexpected(Error{ErrorKind::Network, "WinHttpSendRequest failed"});
+    if (!WinHttpReceiveResponse(req.h, nullptr))
+        return std::unexpected(Error{ErrorKind::Network, "WinHttpReceiveResponse failed"});
+
+    DWORD status = 0;
+    DWORD slen = sizeof(status);
+    WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &slen,
+                        WINHTTP_NO_HEADER_INDEX);
+    // Expected: 206 Partial Content. Some servers return 200 if the range
+    // covers the whole file — accept that too.
+    if (status != 206 && status != 200) {
+        ErrorKind k = (status < 500) ? ErrorKind::HttpClient : ErrorKind::HttpServer;
+        return std::unexpected(Error{k,
+            std::format("range request returned HTTP {} (expected 206)", status)});
+    }
+
+    // Open per-thread file handle. FILE_SHARE_WRITE lets sibling threads
+    // also have their own handle open at disjoint offsets; NTFS handles the
+    // disjoint write parallelism correctly without further synchronization.
+    HANDLE fh = CreateFileW(dest.wstring().c_str(),
+                            GENERIC_WRITE,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            nullptr,
+                            OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+    if (fh == INVALID_HANDLE_VALUE) {
+        return std::unexpected(Error{ErrorKind::Io, "CreateFile (chunk dest) failed"});
+    }
+
+    LARGE_INTEGER off; off.QuadPart = lo;
+    if (!SetFilePointerEx(fh, off, nullptr, FILE_BEGIN)) {
+        CloseHandle(fh);
+        return std::unexpected(Error{ErrorKind::Io, "SetFilePointerEx failed"});
+    }
+
+    int64_t written = 0;
+    std::vector<unsigned char> buf(kChunk);
+    while (true) {
+        DWORD avail = 0;
+        if (!WinHttpQueryDataAvailable(req.h, &avail)) {
+            CloseHandle(fh);
+            return std::unexpected(Error{ErrorKind::Network, "WinHttpQueryDataAvailable failed"});
+        }
+        if (avail == 0) break;
+        if (avail > buf.size()) buf.resize(avail);
+        DWORD got = 0;
+        if (!WinHttpReadData(req.h, buf.data(), avail, &got)) {
+            CloseHandle(fh);
+            return std::unexpected(Error{ErrorKind::Network, "WinHttpReadData failed"});
+        }
+        if (got == 0) break;
+        DWORD wrote = 0;
+        if (!WriteFile(fh, buf.data(), got, &wrote, nullptr) || wrote != got) {
+            CloseHandle(fh);
+            return std::unexpected(Error{ErrorKind::Io, "WriteFile (chunk) failed"});
+        }
+        written += wrote;
+    }
+    CloseHandle(fh);
+    return written;
+}
+
+// Pre-allocate `dest` to `total` bytes so each thread can SetFilePointerEx +
+// WriteFile into its slice without extending the file. SetEndOfFile sets
+// physical size; allocation is sparse on NTFS (no zero-fill cost).
+bool preallocate_file(const fs::path& dest, int64_t total) {
+    HANDLE fh = CreateFileW(dest.wstring().c_str(),
+                            GENERIC_WRITE,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE,
+                            nullptr,
+                            CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+    if (fh == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER eof; eof.QuadPart = total;
+    bool ok = SetFilePointerEx(fh, eof, nullptr, FILE_BEGIN) && SetEndOfFile(fh);
+    CloseHandle(fh);
+    return ok;
+}
+
+// Orchestrate N parallel range fetches into `dest`. Caller has already
+// confirmed the server supports byte ranges and `total` is the
+// Content-Length. Returns total bytes written or first error.
+std::expected<int64_t, Error> download_chunked(
+    const std::string& url, const fs::path& dest,
+    int64_t total, int n, int timeout_seconds, const std::string& label)
+{
+    if (n < 2) n = 2;
+    if (n > 16) n = 16;  // sanity cap; CDNs throttle anyway after 4-8 conns
+
+    if (!preallocate_file(dest, total)) {
+        return std::unexpected(Error{ErrorKind::Io, "could not preallocate output file"});
+    }
+
+    // Compute disjoint inclusive ranges. Last chunk takes any remainder.
+    struct Range { int64_t lo, hi; };
+    std::vector<Range> ranges;
+    int64_t per = total / n;
+    for (int i = 0; i < n; ++i) {
+        int64_t lo = i * per;
+        int64_t hi = (i == n - 1) ? (total - 1) : (lo + per - 1);
+        ranges.push_back({lo, hi});
+    }
+
+    std::vector<std::expected<int64_t, Error>> results(n);
+    std::vector<std::thread> threads;
+    threads.reserve(n);
+    std::atomic<int64_t> bytes_done{0};
+
+    log::stepf("chunked download: {} ({}, {} threads × ~{} MiB)",
+               label, url, n, (per + 1024 * 1024 - 1) / (1024 * 1024));
+
+    for (int i = 0; i < n; ++i) {
+        threads.emplace_back([&, i] {
+            results[i] = download_range_to_file(url, dest, ranges[i].lo, ranges[i].hi,
+                                                timeout_seconds);
+            if (results[i].has_value()) bytes_done.fetch_add(*results[i]);
+        });
+    }
+    for (auto& t : threads) t.join();
+
+    int64_t total_written = 0;
+    for (int i = 0; i < n; ++i) {
+        if (!results[i].has_value()) return std::unexpected(results[i].error());
+        total_written += *results[i];
+    }
+    if (total_written != total) {
+        return std::unexpected(Error{ErrorKind::Network,
+            std::format("chunked total mismatch: wrote {} bytes, expected {}",
+                        total_written, total)});
+    }
+    return total_written;
+}
+
 #endif  // _WIN32
 
 }  // namespace
@@ -273,6 +540,81 @@ std::expected<DownloadResult, Error> download(
     std::string label = opts.label.empty()
         ? (url.rfind('/') != std::string::npos ? url.substr(url.rfind('/') + 1) : url)
         : opts.label;
+
+    // Chunked-download decision. We do this BEFORE the retry loop because a
+    // failed HEAD or unsupported Range never recovers on retry — we just
+    // fall back to single-stream and start the loop with that strategy.
+    bool use_chunked = false;
+    int64_t known_size = -1;
+    if (opts.parallel_chunks > 1) {
+        if (auto h = head_info(url, opts.timeout_seconds)) {
+            if (h->accepts_ranges
+                && h->content_length >= opts.chunk_threshold) {
+                use_chunked = true;
+                known_size = h->content_length;
+            }
+        }
+        // Fall-through: single-stream if HEAD failed or server doesn't
+        // chunk. We don't log a warning here because for many small files
+        // the HEAD probe is the expected outcome of "not chunked".
+    }
+
+    if (use_chunked) {
+        // Chunked path: pre-allocate dest, N threads do Range GETs, single
+        // verify_file at end (concurrent writers can't share a streaming
+        // hash state). Retries: chunked failure falls back to single-stream
+        // (we don't retry chunked itself — a partial output file from a
+        // half-completed chunked download is hard to resume cleanly).
+        wchar_t tmp_buf[MAX_PATH * 2];
+        std::wstring parent = dest.parent_path().wstring();
+        std::wstring prefix = L".dl-";
+        if (GetTempFileNameW(parent.c_str(), prefix.c_str(), 0, tmp_buf) == 0) {
+            return std::unexpected(Error{ErrorKind::Io, "GetTempFileName failed"});
+        }
+        fs::path tmp = fs::path(tmp_buf);
+        // GetTempFileName creates a 0-byte file; preallocate_file then
+        // CREATE_ALWAYS-overwrites it to the right size.
+
+        auto rc = download_chunked(url, tmp, known_size,
+                                   opts.parallel_chunks, opts.timeout_seconds, label);
+        if (!rc.has_value()) {
+            log::warnf("chunked download failed ({}); falling back to single-stream",
+                       rc.error().message);
+            fs::remove(tmp, ec);
+            // Fall through to single-stream below.
+        } else {
+            // Verify hash by re-reading the assembled file. Slight cost
+            // (~0.5s per 100 MB on SSD) but the only correct option since
+            // we couldn't stream-hash across N threads.
+            auto sha = hash::hash_file(tmp, hash::Algorithm::Sha256);
+            if (!sha) {
+                fs::remove(tmp, ec);
+                return std::unexpected(Error{ErrorKind::Io, "post-chunk hash_file failed"});
+            }
+            if (opts.expected_hash) {
+                const auto& exp = *opts.expected_hash;
+                std::string actual_hex = (exp.algo == hash::Algorithm::Sha256)
+                    ? sha->hex
+                    : (hash::hash_file(tmp, exp.algo).value_or(hash::HashSpec{}).hex);
+                if (actual_hex != exp.hex) {
+                    fs::remove(tmp, ec);
+                    return std::unexpected(Error{
+                        ErrorKind::HashMismatch,
+                        std::format("hash mismatch for {}\n  expected {}:{}\n  actual   {}:{}",
+                                    url, hash::algo_name(exp.algo), exp.hex,
+                                    hash::algo_name(exp.algo), actual_hex)});
+                }
+            }
+            fs::remove(dest, ec);
+            fs::rename(tmp, dest, ec);
+            if (ec) {
+                fs::copy_file(tmp, dest, fs::copy_options::overwrite_existing, ec);
+                fs::remove(tmp, ec);
+                if (ec) return std::unexpected(Error{ErrorKind::Io, "rename/copy failed"});
+            }
+            return DownloadResult{*sha, *rc};
+        }
+    }
 
     Error last_err{ErrorKind::Network, "no attempts"};
     int retries = std::max(1, opts.retries);

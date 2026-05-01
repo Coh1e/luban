@@ -42,6 +42,21 @@ struct DownloadOptions {
     std::string label;                 // 进度条左侧标签，默认是 url 末段
     int retries = 3;
     int timeout_seconds = 30;
+
+    // Chunked HTTP Range download. When `parallel_chunks > 1` AND the server
+    // returns a HEAD response with Content-Length >= chunk_threshold AND
+    // accepts byte ranges, luban issues N concurrent GETs with
+    // `Range: bytes=<lo>-<hi>` headers and stitches the file together.
+    // Primarily a CDN-throttle bypass: a single TCP stream is rate-limited
+    // by the server's per-connection cap; multiple connections aggregate
+    // closer to link ceiling. For LLVM-MinGW (~280 MB) the speedup is
+    // typically 1.5-3x.
+    //
+    // Defaults to 0 (single-stream — identical to v0.1.x behavior). Component
+    // install overrides to 4. Falls back to single-stream cleanly when HEAD
+    // fails, the file is small, or the server doesn't advertise byte ranges.
+    int parallel_chunks = 0;
+    int64_t chunk_threshold = 8 * 1024 * 1024;  // 8 MiB
 };
 
 struct DownloadResult {

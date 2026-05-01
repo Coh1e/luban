@@ -181,6 +181,11 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
         opts.label = archive_name;
         opts.retries = 3;
         opts.timeout_seconds = 60;
+        // Toolchain archives are typically 10-280 MB; the chunked path
+        // shaves real time off LLVM-MinGW (the 280 MB outlier) and is
+        // negligible overhead on smaller files (HEAD probe + skip).
+        // Falls back to single-stream on any failure (HEAD, range, etc.).
+        opts.parallel_chunks = 4;
 
         // Try the canonical URL, then each mirror in order. A hash mismatch
         // is FATAL (don't iterate to mirrors — that means the published hash
