@@ -103,10 +103,20 @@ std::vector<std::pair<std::string, std::string>> env_dict() {
                          paths::toolchain_dir(vcpkg_it->second.toolchain_dir).string());
     }
 
-    fs::path vcpkg_cache = paths::cache_dir() / "vcpkg";
-    out.emplace_back("VCPKG_DOWNLOADS",            (vcpkg_cache / "downloads").string());
-    out.emplace_back("VCPKG_DEFAULT_BINARY_CACHE", (vcpkg_cache / "archives").string());
-    out.emplace_back("X_VCPKG_REGISTRIES_CACHE",   (vcpkg_cache / "registries").string());
+    // vcpkg insists the cache dirs exist before it touches them. We
+    // create-on-emit here (rather than only via setup's ensure_dirs) so
+    // users who upgraded from v0.1.x without re-running `luban setup` still
+    // get a working `luban build` — the first call to env_dict materializes
+    // the dirs.
+    {
+        std::error_code ec;
+        fs::create_directories(paths::vcpkg_downloads_dir(), ec);
+        fs::create_directories(paths::vcpkg_archives_dir(), ec);
+        fs::create_directories(paths::vcpkg_registries_dir(), ec);
+    }
+    out.emplace_back("VCPKG_DOWNLOADS",            paths::vcpkg_downloads_dir().string());
+    out.emplace_back("VCPKG_DEFAULT_BINARY_CACHE", paths::vcpkg_archives_dir().string());
+    out.emplace_back("X_VCPKG_REGISTRIES_CACHE",   paths::vcpkg_registries_dir().string());
 
     if (recs.find("emscripten") != recs.end()) {
         out.emplace_back("EM_CONFIG",

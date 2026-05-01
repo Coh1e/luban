@@ -176,6 +176,14 @@ fs::path buckets_dir() { return registry_dir() / "buckets"; }
 fs::path overlay_dir() { return registry_dir() / "overlay"; }
 fs::path downloads_dir() { return cache_dir() / "downloads"; }
 fs::path vcpkg_binary_cache_dir() { return cache_dir() / "vcpkg-binary"; }
+// vcpkg's three caches that v0.2 routes via env vars (env_snapshot:env_dict).
+// vcpkg insists the dirs exist; without ensure_dirs creating them, the very
+// first `luban build` against a freshly-installed luban panics with
+// "Value of environment variable X_VCPKG_REGISTRIES_CACHE is not a directory".
+fs::path vcpkg_cache_dir() { return cache_dir() / "vcpkg"; }
+fs::path vcpkg_downloads_dir() { return vcpkg_cache_dir() / "downloads"; }
+fs::path vcpkg_archives_dir() { return vcpkg_cache_dir() / "archives"; }
+fs::path vcpkg_registries_dir() { return vcpkg_cache_dir() / "registries"; }
 fs::path installed_json_path() { return state_dir() / "installed.json"; }
 fs::path last_sync_path() { return state_dir() / ".last_sync"; }
 fs::path logs_dir() { return state_dir() / "logs"; }
@@ -198,6 +206,9 @@ std::vector<std::pair<std::string, fs::path>> all_dirs() {
         {"registry/overlay", overlay_dir()},
         {"downloads", downloads_dir()},
         {"vcpkg-binary", vcpkg_binary_cache_dir()},
+        {"vcpkg/downloads",   vcpkg_downloads_dir()},
+        {"vcpkg/archives",    vcpkg_archives_dir()},
+        {"vcpkg/registries",  vcpkg_registries_dir()},
         {"logs", logs_dir()},
     };
 }
