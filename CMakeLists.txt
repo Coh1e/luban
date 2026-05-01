@@ -159,6 +159,7 @@ if(LUBAN_BUILD_TESTS)
         tests/test_paths.cpp
         tests/test_selection.cpp
         tests/test_vcpkg_manifest.cpp
+        tests/test_scoop_manifest.cpp
         # Leaf production sources we exercise. NOT main.cpp / cli.cpp /
         # commands/ — those are integration territory (smoke.bat covers
         # them end-to-end).
@@ -172,6 +173,7 @@ if(LUBAN_BUILD_TESTS)
         src/path_search.cpp
         src/selection.cpp
         src/vcpkg_manifest.cpp
+        src/scoop_manifest.cpp
     )
     target_include_directories(luban-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/src
