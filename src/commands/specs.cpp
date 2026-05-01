@@ -46,7 +46,7 @@
 #endif
 
 #include "json.hpp"
-#include "luban/embedded_help/specs.hpp"
+#include "luban/embedded_help/specs.hpp"  // luban::embedded_help::specs_help
 
 #include "../cli.hpp"
 #include "../log.hpp"
@@ -396,7 +396,7 @@ int run_init(const fs::path& project_root, const fs::path& tpl_root) {
         // HOW-TO-USE.md content is shared with `luban specs --help` long_help
         // via the cmake-embedded specs.md. Single source of truth = same
         // file in both views.
-        write_text_atomic(how_to, embedded_help::specs);
+        write_text_atomic(how_to, embedded_help::specs_help);
         log::okf("wrote {}", how_to.string());
     }
     // .gitkeep so the empty sage/ dir survives git checkout.
@@ -572,7 +572,7 @@ void register_specs() {
     c.name = "specs";
     c.help = "scaffold AGENTS.md + specs/ for AI-driven requirement collection";
     c.group = "project";
-    c.long_help = embedded_help::specs;
+    c.long_help = embedded_help::specs_help;
     // <subcommand> is required; <topic> is only consumed by `new`.
     // cli enforces minimum positional count; we hand-validate the topic
     // inside run_new since most subcommands don't need it.

@@ -11,6 +11,8 @@
 #include <windows.h>
 #endif
 
+#include "luban/embedded_help/new.hpp"  // luban::embedded_help::new_help
+
 #include "../cli.hpp"
 #include "../log.hpp"
 
@@ -210,19 +212,10 @@ void register_new() {
     c.name = "new";
     c.help = "scaffold a new C++ project (CMakeLists + vcpkg.json + luban.cmake)";
     c.group = "project";
-    c.long_help =
-        "  Create a fresh project directory with subdir layout:\n"
-        "    foo/\n"
-        "      CMakeLists.txt          (4 lines, user-owned)\n"
-        "      luban.cmake             (luban-managed, GIT-TRACKED)\n"
-        "      vcpkg.json              (deps manifest)\n"
-        "      vcpkg-configuration.json (baseline pin)\n"
-        "      CMakePresets.json       (Ninja, optional vcpkg toolchain)\n"
-        "      .gitignore .clang-format .clang-tidy .vscode/\n"
-        "      src/foo/{CMakeLists.txt, main.cpp}\n"
-        "\n"
-        "  By default, runs `luban build` once after scaffolding so\n"
-        "  compile_commands.json is ready for clangd. Pass --no-build to skip.";
+    // Manual-grade --help: `docs/src/commands/new.md` is embedded at build
+    // time (cmake/embed_text.cmake). Single source of truth for the mdBook
+    // chapter and the in-binary --help.
+    c.long_help = embedded_help::new_help;
     c.opts = {{"at", "."}, {"target", "native"}};
     c.flags = {"no-build"};
     c.n_positional = 2;

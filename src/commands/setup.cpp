@@ -20,6 +20,8 @@
 #include <set>
 #include <sstream>
 
+#include "luban/embedded_help/setup.hpp"  // luban::embedded_help::setup_help
+
 #include "../cli.hpp"
 #include "../component.hpp"
 #include "../log.hpp"
@@ -252,22 +254,14 @@ void register_setup() {
     c.name = "setup";
     c.help = "install toolchain (LLVM-MinGW + cmake + ninja + mingit + vcpkg)";
     c.group = "setup";
-    c.long_help =
-        "  Install all enabled toolchain components per <config>/luban/selection.json.\n"
-        "  Idempotent — re-running is fast unless --force.\n"
-        "\n"
-        "  --with X[,Y]      enable + install component(s) and persist into\n"
-        "                    selection.json. Recursively pulls in `depends:`.\n"
-        "  --without X[,Y]   disable in selection + uninstall (toolchain dir\n"
-        "                    and shims). Symmetric to --with.\n"
-        "  --only  X[,Y]     this run only — install just X; does not persist.\n"
-        "\n"
-        "  Shims land in bin_dir() (~/.local/bin by default). After install,\n"
-        "  run `luban env --user` once to register that dir on HKCU PATH —\n"
-        "  any new shell will see cmake/clang/ninja/etc. directly. CI users\n"
-        "  pin LUBAN_PREFIX=... and source the same.";
+    // Manual-grade --help: `docs/src/commands/setup.md` is embedded at build
+    // time (cmake/embed_text.cmake). Single source of truth for the mdBook
+    // chapter and the in-binary --help.
+    c.long_help = embedded_help::setup_help;
     c.opts = {{"only", ""}, {"with", ""}, {"without", ""}};
-    c.flags = {"dry-run", "refresh-buckets", "force"};
+    // --refresh-buckets removed in v0.2 (bucket_sync gone — manifests come
+    // from manifests_seed/ overlay only; nothing to refresh from network).
+    c.flags = {"dry-run", "force"};
     c.examples = {
         "luban setup\tInstall all enabled components",
         "luban setup --only vcpkg\tInstall just vcpkg (overrides selection.enabled)",

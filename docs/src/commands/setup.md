@@ -7,7 +7,6 @@ Install all enabled toolchain components. **Run this once per machine.**
 ```text
 luban setup [--only <name>[,<name>...]] [--with <name>[,<name>...]]
             [--without <name>[,<name>...]] [--force] [--dry-run]
-            [--refresh-buckets]
 ```
 
 ## Default behavior
@@ -44,7 +43,16 @@ Enable + install named component(s) AND **persist** into `<config>/luban/selecti
 ```bat
 luban setup --with emscripten   :: also pulls in node via depends
 luban setup --with node,zig     :: opt-in to multiple
+luban setup --with doxygen      :: needed by `luban doc`
 ```
+
+Special components (don't fit the standard "download + extract" pipeline):
+
+- **`msvc`** — luban does NOT install Visual Studio Build Tools (Microsoft's
+  installer + EULA + ~5 GB). Instead, `luban env --msvc-init` discovers an
+  existing VS install via vswhere and captures vcvarsall env into
+  `<state>/msvc-env.json`. After that, `luban build` / `luban run` see the
+  MSVC env automatically. See [`luban env`](./env.md) for details.
 
 ### `--without <name>[,<name>...]`
 
@@ -63,22 +71,35 @@ Reinstall the component even if already present at the same version. Re-download
 
 Show what would be installed without doing it. Walks the selection, verifies manifests can be fetched + parsed, prints the URL each component would download. **No network downloads, no extracts, no registry writes.**
 
-### `--refresh-buckets` *(experimental)*
-
-Force re-fetch of Scoop bucket mirrors. Normally luban fetches manifests on demand and caches them; this flag invalidates the cache.
-
 ## Per-component pipeline
 
 For each enabled component, luban runs:
 
-1. **Resolve manifest** — overlay → bucket cache → bucket remote (raw.githubusercontent)
-2. **Validate manifest** — reject if `installer`, `pre_install`, `post_install`, `uninstaller`, `persist`, or `psmodule` fields are present (these would require running PowerShell)
-3. **Download** the archive to `<cache>/luban/downloads/`, with retries + sha256 verification
+1. **Resolve manifest** — `<data>/registry/overlay/<name>.json` first (populated
+   on first run from `manifests_seed/`), then in-tree `manifests_seed/<name>.json`
+   as fallback. **No network**; v0.2 dropped the bucket_sync that fetched
+   from `raw.githubusercontent.com` (see ADR-0001 / OQ-7 / `manifest_source.cpp`).
+2. **Validate manifest** — reject if `installer`, `pre_install`, `post_install`,
+   `uninstaller`, `persist`, or `psmodule` fields are present (these would
+   require running PowerShell). Also rejects `.msi` / `.nsis` URLs.
+3. **Download** the archive to `<cache>/luban/downloads/`, with retries + sha256
+   verification streamed during transfer. Falls back through `luban_mirrors`
+   array on network failure (NOT on hash mismatch — that means the manifest's
+   hash is wrong, no point trying mirrors).
 4. **Extract** to a staging dir under `<data>/toolchains/.tmp-<name>-<ver>/`
-5. **Apply `extract_dir`** — descend into the wrapper directory if the archive uses one
-6. **Promote** staging → `<data>/toolchains/<name>-<ver>-<arch>/` (atomic rename, copy fallback for cross-volume)
-7. **Special bootstrap** for vcpkg: run `bootstrap-vcpkg.bat` once after extract to fetch matching `vcpkg.exe` from microsoft/vcpkg-tool releases
-8. **Write shims** — `.cmd`, `.ps1`, extensionless sh, one set per `bin` alias, into `<data>/bin/`
+5. **Apply `extract_dir`** — descend into the wrapper directory if the archive
+   uses one
+6. **Promote** staging → `<data>/toolchains/<name>-<ver>-<arch>/` (atomic
+   rename, copy fallback for cross-volume)
+7. **Special bootstrap** when needed:
+   - **vcpkg**: run `bootstrap-vcpkg.bat` once after extract to fetch matching
+     `vcpkg.exe` from microsoft/vcpkg-tool releases
+   - **emscripten**: write `<config>/emscripten/config` (XDG-respecting since
+     v0.2) referencing LLVM_ROOT / NODE_JS / etc. — emcc reads it via
+     `EM_CONFIG`, which `luban env --user` writes to HKCU.
+8. **Write shims** — `.cmd` text shim + `.exe` hardlink (to `luban-shim.exe`),
+   one pair per `bin` alias, into `<data>/bin/`. Pre-v0.2 also wrote `.ps1`
+   and extensionless sh; dropped to keep the bin dir tidy.
 9. **Update registry** — `<state>/luban/installed.json`
 
 ## What it does NOT touch
