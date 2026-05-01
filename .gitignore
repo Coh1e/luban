@@ -31,3 +31,9 @@ desktop.ini
 
 # Claude Code local settings (per-machine)
 .claude/settings.local.json
+
+# Compiler artifacts that may leak into repo cwd
+*.obj
+*.lib
+*.exp
+*.pdb
