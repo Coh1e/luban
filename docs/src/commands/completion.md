@@ -6,7 +6,9 @@ Generate shell completion scripts.
 luban completion <shell>
 ```
 
-Today only **clink** (cmd.exe enhancement) is supported. Future shells: bash, zsh, pwsh.
+Supported shells: **clink** (cmd.exe), **bash**, **zsh**, **fish**, **powershell**.
+Each emits a self-contained completion script to stdout — pipe it into the right
+location for your shell.
 
 ## `luban completion clink`
 
@@ -40,22 +42,59 @@ scoop install clink
 
 Or download from [chrisant996/clink](https://github.com/chrisant996/clink/releases). Verify with `clink --version` inside cmd.exe.
 
-### How the script is generated
-
-The Lua script is a **static string literal** baked into `luban.exe`. It does not introspect the CLI registry at runtime — we maintain it by hand alongside new verbs. This keeps `luban completion clink` cheap and offline-only (no PowerShell, no fork-exec, just `WriteFile(stdout)`).
-
-The trade-off: if a verb is added without updating `src/commands/completion.cpp`, the new verb still works on the command line but won't tab-complete until the next release. Acceptable: the canonical CLI surface is small (16 verbs) and changes in lockstep with releases.
-
 ### Why clink (and not native cmd)?
 
 Native cmd.exe has zero programmable argument completion — only filename completion via `cmd /F:ON`. clink injects a readline-style line editor with full Lua scriptability, used by tens of thousands of cmd users for git/scoop/winget completion.
 
-### Future shells
+## `luban completion bash`
 
-`luban completion <shell>` rejects unknown shells with a friendly error pointing at the issue tracker. PRs welcome for:
+```bash
+# system-wide
+sudo luban completion bash > /etc/bash_completion.d/luban
+# or per-user
+luban completion bash > ~/.bash_completion.d/luban
+```
 
-- `bash` — for Git Bash / WSL users running luban.exe
-- `pwsh` — PowerShell 7+ argument completers
-- `zsh` — for Linux/macOS port (M3 deferred)
+Source from `.bashrc` if your distro doesn't auto-load `~/.bash_completion.d/`:
 
-Until then: `clink` is the recommended path on Windows.
+```bash
+[ -f ~/.bash_completion.d/luban ] && . ~/.bash_completion.d/luban
+```
+
+Git Bash on Windows: drop the file under `~/.bash_completion.d/` and source from `.bashrc`.
+
+## `luban completion zsh`
+
+```zsh
+# pick a directory in $fpath (e.g. ~/.zsh/completions)
+luban completion zsh > ~/.zsh/completions/_luban
+# add to ~/.zshrc once
+fpath=(~/.zsh/completions $fpath)
+autoload -U compinit && compinit
+```
+
+The completion file must be named `_luban` (the underscore prefix is mandatory for zsh's autoload).
+
+## `luban completion fish`
+
+```fish
+luban completion fish > ~/.config/fish/completions/luban.fish
+```
+
+Fish auto-loads anything in `completions/` next time you start a shell.
+
+## `luban completion powershell`
+
+```powershell
+luban completion powershell > $PROFILE.luban.ps1
+# add to $PROFILE once
+. $PROFILE.luban.ps1
+```
+
+Or paste the output directly into your `$PROFILE`. Works in PowerShell 5.1 and 7+.
+
+## How the scripts are generated
+
+Every script is a **static string literal** baked into `luban.exe`, sharing a single source-of-truth verb list (`kVerbsSpaceSep` in `src/commands/completion.cpp`). They do not introspect the CLI registry at runtime — we maintain them by hand alongside new verbs. This keeps `luban completion <shell>` cheap and offline-only.
+
+Trade-off: if a verb is added without updating `src/commands/completion.cpp`, the new verb still works on the command line but won't tab-complete until the next release. Acceptable: the canonical CLI surface is small (~17 verbs) and changes in lockstep with releases.
