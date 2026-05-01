@@ -45,8 +45,9 @@ The "user-facing" half of luban's value:
 | Theme | Examples |
 |---|---|
 | Workspace support | `luban.toml [workspace] members = [...]`, shared build cache |
-| Toolchain pin per project | `rust-toolchain.toml` equivalent |
-| Linux/macOS port | `proc.cpp` POSIX, `download.cpp` libcurl, `setup.cpp` cross-platform |
+| Toolchain pin per project | ✅ Phase 1 done (v0.3) — `luban.toml [toolchain]` map, `luban build` warns on mismatch. Phase 2: `--strict-pins` flag for CI. |
+| Linux/macOS port | Design frozen — see ADR-0006. Phase A: build clean on POSIX; Phase B: hash via OpenSSL + download via libcurl; Phase C: `~/.bashrc` PATH writes, symlink shims, platform triplets. |
+| luban registry (OQ-7) | Design frozen — see ADR-0005. vcpkg-complementary; categories: lib, lib-rs (Rust FFI via cxx-bridge), template, toolchain (manifests_seed migrates here). |
 | TUI / interactive mode | `luban setup -i`, FTXUI; first-run wizard |
 | Visualization (`/luban describe --view`) | dump JSON, open static HTML page with D3.js graph |
 | `luban tool install <pkg>` | pipx-equivalent for global C++ CLI tools |

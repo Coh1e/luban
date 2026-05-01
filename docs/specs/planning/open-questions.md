@@ -14,13 +14,15 @@
   代价是 ~30 个 HKCU env，与"limit PATH pollution"原则张力大；先观察 Phase 1 用户
   反馈再决定。
 
-## OQ-2：per-project toolchain pin？
+## OQ-2：per-project toolchain pin？ — Phase 1 ✅ (v0.3)
 
 - **背景**：rustup 风格的 `rust-toolchain.toml`。当前所有项目共享 system-tier toolchain。
-- **候选**：
-  - A. `luban.toml [toolchain] cmake = "4.3.2"` 加重新选 / 安装
-  - B. workspace 级而非 project 级
-- **偏好**：未定。先观察 OQ-3。
+- **v0.3 解法**：A 落地。`luban.toml [toolchain]` 段解析为 `string→string` map；
+  `luban build` preflight 把 pin 与 `installed.json` 对比：mismatch 警告（不
+  hard-fail，build 继续），未装组件提示 `luban setup --with X`。**warn-not-fail
+  设计**——用户可能故意升级了 toolchain，强制阻断会造成不必要的摩擦。
+- **遗留 (Phase 2)**：`--strict-pins` flag 把 warn 升级为 hard-fail（CI 场景）。
+  workspace 级 pin（候选 B）等 OQ-3 拍板再说。
 
 ## OQ-3：workspace 支持？
 
@@ -30,14 +32,19 @@
   - B. 不做，让用户用 cmake superbuild
 - **偏好**：A，但优先级低于 OQ-1 / OQ-4。
 
-## OQ-4：Linux/macOS port 时间表？
+## OQ-4：Linux/macOS port 时间表？ — 设计冻结 ✅ (ADR-0006)
 
 - **背景**：架构已预留（XDG-first、`paths.cpp` 平台分支）；阻塞点是 `proc.cpp`
   的 POSIX 实现 + `download.cpp` 换 libcurl + 生态适配。
-- **候选**：
-  - A. 用 `LUBAN_PREFIX` 跑容器内 Linux 实验，先满足 CI 可用
-  - B. 完整移植 + 发布 Linux/macOS 二进制
-- **偏好**：A 先做，B 看用户量。
+- **状态（v0.3）**：[ADR-0006](../decisions/ADR-0006-posix-port.md) 落地三阶段
+  方案。源码层 19 个 .cpp 已经分平台，16 个有 honest stub；luban-shim 已 gate
+  到 `if(WIN32)`。
+- **Phase A（M4 entry gate）**：CI 加 ubuntu/macos build runner，stubs 仍是
+  stubs，doctor 给出诚实的"本平台不可用"诊断。
+- **Phase B**：hash.cpp 走 OpenSSL `EVP_*`，download.cpp 走 libcurl（系统库——
+  ADR-0001 invariant 1 escape hatch）。
+- **Phase C**：POSIX 习惯（`~/.bashrc` 写 PATH、symlink shim、平台 triplet 默认值）。
+- **Out of scope**：cross-target build、MSVC on POSIX。
 
 ## OQ-5：`describe --json` 是否纳入稳定 schema？
 
@@ -57,7 +64,7 @@
   - B. 维持人工
 - **偏好**：A，但需要保留对 alias / 多 target 名的人工覆写。
 
-## OQ-7：luban "小生态"（crate 化）+ vcpkg 并行兼容
+## OQ-7：luban "小生态"（crate 化）+ vcpkg 并行兼容 — 设计冻结 ✅ (ADR-0005)
 
 - **背景**：用户希望 C++ 项目有 Rust crate 那种 first-class 包生态，与 vcpkg 互
   补。`luban add <pkg>` 解析顺序：vcpkg 命中 → 直接装 vcpkg port；vcpkg 缺货 →
@@ -68,7 +75,9 @@
   - 工具链 manifest（已有）
 - **关键约束**：vcpkg 是项目依赖唯一真相不变（luban registry 安装的产物也照样
   emit 到 cmake `find_package` + `target_link_libraries`，对用户透明）。
-- **状态**：M4+ 起草 ADR-0004 详细设计。
+- **状态**：[ADR-0005](../decisions/ADR-0005-luban-registry.md) 落地。M4+ 进入
+  实施 Phase 1（index repo + toolchain 类迁移），Phase 2（lib + lib-rs），Phase 3
+  （template）。M4 启动前要拍板的 5 个开放点已枚举到 ADR-0005 §"Open questions"。
 
 ## OQ-8：FFI 边界 — luban.exe 自身 vs luban-managed packages
 
