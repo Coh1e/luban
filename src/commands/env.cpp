@@ -232,6 +232,43 @@ int run_env(const cli::ParsedArgs& a) {
             }
         }
 
+        // MSVC Phase 2: if the user previously ran `luban env --msvc-init`,
+        // write the captured INCLUDE / LIB / LIBPATH / WindowsSdk* / etc.
+        // (~35 vars) to HKCU. After this, fresh shells see cl.exe via the
+        // single PATH entry below — without going through `luban run`.
+        //
+        // PATH addition strategy: vcvarsall spits out ~14 dirs into PATH
+        // (MSVC compiler bin + VS IDE + Win SDK + MSBuild + perf tools).
+        // Adding all of them to HKCU PATH is unacceptable pollution. We
+        // add only the FIRST entry — by vcvarsall convention that's the
+        // MSVC HostX64\x64 dir which contains cl/link/lib/ml64/dumpbin/
+        // editbin/cvtres. Covers the standard "compile + link" workflow.
+        //
+        // For msbuild / rc / mt: user runs `luban run msbuild ...` (uses
+        // env_snapshot's full path injection); or hand-adds the SDK dir
+        // to HKCU PATH if they need fresh-shell access.
+        if (auto cap = msvc_env::load()) {
+            int count = 0;
+            for (auto& [k, v] : cap->vars) {
+                if (win_path::set_user_env(k, v)) ++count;
+            }
+            // First entry of path_addition only — see comment above.
+            std::string first_msvc_dir;
+            if (!cap->path_addition.empty()) {
+                size_t semi = cap->path_addition.find(';');
+                first_msvc_dir = (semi == std::string::npos)
+                    ? cap->path_addition
+                    : cap->path_addition.substr(0, semi);
+            }
+            if (!first_msvc_dir.empty()) {
+                win_path::add_to_user_path(first_msvc_dir);
+                log::okf("set {} MSVC env vars + {} on HKCU PATH",
+                         count, first_msvc_dir);
+            } else {
+                log::okf("set {} MSVC env vars (no PATH addition)", count);
+            }
+        }
+
         log::info("open a new shell for the changes to take effect.");
     }
 
@@ -249,7 +286,29 @@ int run_env(const cli::ParsedArgs& a) {
         }
         win_path::unset_user_env("VCPKG_ROOT");
         win_path::unset_user_env("EM_CONFIG");
-        log::ok("removed legacy LUBAN_* and VCPKG_ROOT / EM_CONFIG from HKCU env");
+
+        // MSVC Phase 2: also unset the captured MSVC vars + remove the
+        // PATH entries luban prepended on `--user`. Reads msvc-env.json
+        // for the var names and PATH entry list rather than guessing —
+        // matches what --user wrote symmetrically.
+        if (auto cap = msvc_env::load()) {
+            for (auto& [k, _] : cap->vars) win_path::unset_user_env(k);
+            std::string s = cap->path_addition;
+            size_t start = 0;
+            int removed = 0;
+            while (start <= s.size()) {
+                size_t end = s.find(';', start);
+                if (end == std::string::npos) end = s.size();
+                std::string dir = s.substr(start, end - start);
+                if (!dir.empty() && win_path::remove_from_user_path(dir)) ++removed;
+                if (end == s.size()) break;
+                start = end + 1;
+            }
+            log::okf("removed {} MSVC env vars + {} PATH entries from HKCU",
+                     cap->vars.size(), removed);
+        }
+
+        log::ok("removed legacy LUBAN_* / VCPKG_ROOT / EM_CONFIG / MSVC vars from HKCU env");
     }
 
     return 0;
@@ -282,12 +341,16 @@ void register_env() {
         "                          eval \"$(luban env --print --shell bash)\"\n"
         "  --msvc-init [--arch X]  Detect existing MSVC install (via vswhere)\n"
         "                          and capture vcvarsall env into\n"
-        "                          <state>/msvc-env.json. After this,\n"
-        "                          luban-spawned cmake/cl.exe just works\n"
-        "                          (Phase 1: in-process injection only;\n"
-        "                          fresh shells still need vcvarsall).\n"
+        "                          <state>/msvc-env.json. After this:\n"
+        "                            * luban-spawned cmake/cl.exe just works\n"
+        "                              (in-process injection)\n"
+        "                            * the next `luban env --user` writes the\n"
+        "                              ~30 captured vars + MSVC PATH dirs to\n"
+        "                              HKCU so fresh shells see cl.exe too\n"
         "                          Default --arch is x64.\n"
-        "  --msvc-clear            Forget the captured MSVC env.";
+        "  --msvc-clear            Forget the captured MSVC env (also makes\n"
+        "                          the next --user / --unset-user skip MSVC\n"
+        "                          vars).";
     c.flags = {"user", "unset-user", "print", "msvc-init", "msvc-clear"};
     c.opts = {{"shell", ""}, {"arch", ""}};
     c.examples = {

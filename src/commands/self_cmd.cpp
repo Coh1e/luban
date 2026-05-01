@@ -22,6 +22,7 @@
 #include "../download.hpp"
 #include "../hash.hpp"
 #include "../log.hpp"
+#include "../msvc_env.hpp"
 #include "../paths.hpp"
 #include "../proc.hpp"
 #include "../win_path.hpp"
@@ -276,6 +277,24 @@ int run_uninstall(bool yes, bool keep_data) {
     }
     win_path::unset_user_env("VCPKG_ROOT");
     win_path::unset_user_env("EM_CONFIG");
+
+    // MSVC Phase 2: same cleanup `luban env --unset-user` does. Reads
+    // msvc-env.json (lives under <state>, which we wipe below — so do this
+    // before the wipe), iterates captured var names, and removes each
+    // captured PATH entry from HKCU.
+    if (auto cap = msvc_env::load()) {
+        for (auto& [k, _] : cap->vars) win_path::unset_user_env(k);
+        std::string s = cap->path_addition;
+        size_t start = 0;
+        while (start <= s.size()) {
+            size_t end = s.find(';', start);
+            if (end == std::string::npos) end = s.size();
+            std::string dir = s.substr(start, end - start);
+            if (!dir.empty()) win_path::remove_from_user_path(dir);
+            if (end == s.size()) break;
+            start = end + 1;
+        }
+    }
     log::ok("HKCU env cleaned");
 
     // 3. Wipe luban-owned directories (data / cache / state / config). With
