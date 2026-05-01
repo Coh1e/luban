@@ -21,7 +21,7 @@ set(LUBAN_SOURCES
     src/hash.cpp
     src/download.cpp
     src/selection.cpp
-    src/bucket_sync.cpp
+    src/manifest_source.cpp
     src/archive.cpp
     src/component.cpp
     src/luban_toml.cpp

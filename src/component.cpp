@@ -9,7 +9,7 @@
 #include <system_error>
 
 #include "archive.hpp"
-#include "bucket_sync.hpp"
+#include "manifest_source.hpp"
 #include "download.hpp"
 #include "hash.hpp"
 #include "log.hpp"
@@ -96,16 +96,11 @@ std::string now_iso() {
     return buf;
 }
 
-// 从 manifest 路径推 source 标签：
-//   <data>/registry/buckets/<bucket>/bucket/foo.json → "<bucket>"
-//   <data>/registry/overlay/foo.json                → "overlay"
-std::string source_label(const fs::path& manifest_path) {
-    auto parts = std::vector<std::string>{};
-    for (const auto& part : manifest_path) parts.push_back(part.string());
-    for (size_t i = 0; i + 1 < parts.size(); ++i) {
-        if (parts[i] == "buckets" && i + 1 < parts.size()) return parts[i + 1];
-        if (parts[i] == "overlay") return "overlay";
-    }
+// Pre-v0.2 had a source_label(path) helper that parsed the bucket name out
+// of the manifest's on-disk location. With bucket_sync gone, manifest_source
+// returns the label directly via LoadResult::source_label ("overlay" or
+// "seed"); nothing computes it from the path anymore.
+[[maybe_unused]] std::string source_label_unused() {
     return "";
 }
 
@@ -115,14 +110,17 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
                                             const std::string& arch) {
     paths::ensure_dirs();
 
-    // 1. fetch manifest
-    auto fetched = bucket_sync::fetch_manifest(name);
+    // 1. Locate manifest. Only overlay + in-tree seed are searched (no
+    //    network); see manifest_source.hpp for the reasoning.
+    auto fetched = manifest_source::load(name);
     if (!fetched) {
         return std::unexpected(Error{ErrorKind::ManifestNotFound,
-            "no manifest for '" + name + "' in overlay or any known bucket"});
+            "no manifest for '" + name + "' in overlay or manifests_seed/. "
+            "Add a manifests_seed/" + name + ".json (commit it) to install."});
     }
 
-    // 2. parse + safety whitelist
+    // 2. Parse + safety whitelist (rejects installer.script / pre_install /
+    //    .msi / etc. — see scoop_manifest.cpp).
     scoop_manifest::ResolvedManifest parsed;
     try {
         parsed = scoop_manifest::parse(fetched->manifest, name, arch);
@@ -363,7 +361,7 @@ std::expected<InstallReport, Error> install(const std::string& name, bool force,
     registry::ComponentRecord rec;
     rec.name = name;
     rec.version = parsed.version;
-    rec.source = source_label(fetched->manifest_path);
+    rec.source = fetched->source_label;
     rec.url = parsed.url;
     rec.hash_spec = parsed.hash_spec;
     rec.toolchain_dir = tc_name;

@@ -20,10 +20,10 @@
 #include <set>
 #include <sstream>
 
-#include "../bucket_sync.hpp"
 #include "../cli.hpp"
 #include "../component.hpp"
 #include "../log.hpp"
+#include "../manifest_source.hpp"
 #include "../paths.hpp"
 #include "../scoop_manifest.hpp"
 #include "../selection.hpp"
@@ -76,7 +76,7 @@ void expand_depends(std::vector<selection::Entry>& chosen) {
         queue.pop_back();
         if (deps_of.count(name)) continue;
         deps_of[name] = {};
-        auto fetched = bucket_sync::fetch_manifest(name);
+        auto fetched = manifest_source::load(name);
         if (!fetched) continue;
         scoop_manifest::ResolvedManifest parsed;
         try {

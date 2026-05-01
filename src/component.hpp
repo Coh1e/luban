@@ -2,7 +2,7 @@
 // 1:1 port of luban_boot/component.py 的 install/uninstall pipeline。
 //
 // install pipeline:
-//   1. fetch_manifest(name) via bucket_sync
+//   1. manifest_source::load(name) — overlay or in-tree seed only, no network
 //   2. parse via scoop_manifest（含安全白名单）
 //   3. 算 toolchain_dir 名 = "<name>-<version>-<arch>"
 //   4. 幂等：installed.json 已记录同版本且目录存在 → 直接返回
