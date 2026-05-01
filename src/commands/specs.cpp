@@ -47,6 +47,7 @@
 
 #include "json.hpp"
 #include "luban/embedded_help/specs.hpp"  // luban::embedded_help::specs_help
+#include "../file_util.hpp"
 #include "../marker_block.hpp"
 
 #include "../cli.hpp"
@@ -108,32 +109,11 @@ fs::path find_specs_template_root() {
 }
 
 // ---- file IO helpers --------------------------------------------------------
+// Plain text I/O lives in src/file_util.{hpp,cpp}; aliases here keep the
+// existing call sites readable (`read_text(p)` vs `file_util::read_text(p)`).
 
-std::string read_text(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return {};
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
-bool write_text_atomic(const fs::path& p, const std::string& content) {
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    fs::path tmp = p; tmp += ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out) return false;
-        out.write(content.data(), static_cast<std::streamsize>(content.size()));
-    }
-    fs::rename(tmp, p, ec);
-    if (ec) {
-        // Cross-volume rename fallback.
-        fs::copy_file(tmp, p, fs::copy_options::overwrite_existing, ec);
-        fs::remove(tmp, ec);
-    }
-    return !ec;
-}
+using luban::file_util::read_text;
+using luban::file_util::write_text_atomic;
 
 // ---- {{placeholder}} substitution ------------------------------------------
 

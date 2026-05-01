@@ -14,6 +14,7 @@
 #include "luban/embedded_help/new.hpp"  // luban::embedded_help::new_help
 
 #include "../cli.hpp"
+#include "../file_util.hpp"
 #include "../log.hpp"
 
 namespace luban::commands {
@@ -70,19 +71,9 @@ std::string expand(std::string text, const std::map<std::string, std::string>& c
     return text;
 }
 
-std::string read_file(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    std::string s = ss.str();
-    // Strip UTF-8 BOM (templates are saved with BOM).
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF
-        && static_cast<unsigned char>(s[1]) == 0xBB
-        && static_cast<unsigned char>(s[2]) == 0xBF) {
-        s.erase(0, 3);
-    }
-    return s;
-}
+// Templates are saved with UTF-8 BOM (Notepad / VS Code default); use the
+// shared BOM-stripping reader. Aliased here so call sites stay terse.
+using luban::file_util::read_text_no_bom;
 
 void write_file(const fs::path& p, const std::string& content) {
     std::error_code ec;
@@ -112,7 +103,7 @@ int materialize(const fs::path& src_dir, const fs::path& dst_dir,
         fs::path expanded_rel = expand_path(rel, ctx);
         fs::path dst = dst_dir / expanded_rel;
         if (is_template) {
-            std::string text = read_file(entry.path());
+            std::string text = read_text_no_bom(entry.path());
             write_file(dst, expand(std::move(text), ctx));
         } else {
             std::error_code ec;

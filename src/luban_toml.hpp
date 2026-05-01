@@ -1,6 +1,7 @@
 #pragma once
-// luban.toml 读 — schema v1（plan §7）。
-// 缺失文件 / 缺失字段 = 全默认。整个 luban.toml 是可选的，用户没偏好就别建。
+// luban.toml reader — schema v1 (plan §7).
+// Missing file / missing field = full defaults. The whole luban.toml is
+// optional; if a user has no preferences, they shouldn't need to create it.
 
 #include <filesystem>
 #include <map>
@@ -22,7 +23,7 @@ enum class WarningLevel { Off, Normal, Strict };
 
 struct ScaffoldSection {
     WarningLevel warnings = WarningLevel::Normal;
-    std::vector<std::string> sanitizers;     // 例 ["address","ub"]
+    std::vector<std::string> sanitizers;     // e.g. ["address","ub"]
 };
 
 // Per-project toolchain version pins (OQ-2). Maps component name (as it
@@ -52,10 +53,12 @@ struct Config {
     ToolchainPins toolchain;
 };
 
-// 从 path 读 TOML；不存在或解析失败返回默认 Config（不抛）。
+// Read TOML from `path`. Missing file or parse error returns a default
+// Config (never throws); the parse error is logged at warn level.
 Config load(const fs::path& path);
 
-// 解析单字符串：从内存 TOML 文本读。便于测试。
+// Parse TOML from an in-memory string. Used by tests so they don't need
+// to round-trip through the filesystem.
 Config load_from_text(const std::string& text);
 
 }  // namespace luban::luban_toml

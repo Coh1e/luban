@@ -19,22 +19,15 @@
 #include <unistd.h>
 #endif
 
+#include "path_search.hpp"
 #include "paths.hpp"
+#include "tool_list.hpp"
 
 namespace luban::perception {
 
 namespace fs = std::filesystem;
 
 namespace {
-
-// Tools whose presence on PATH is informative for project-level advice.
-// Matches doctor.cpp's list, with extras likely to be useful in AGENTS.md
-// rendering (e.g., is bun/deno installed? user might prefer over node).
-constexpr std::array<const char*, 14> kProbeTools = {
-    "clang", "clang++", "clangd", "clang-format", "clang-tidy",
-    "cmake", "ninja", "git", "vcpkg",
-    "node", "python", "uv", "doxygen", "doctest",
-};
 
 #ifdef _WIN32
 // __cpuid wrapper. Returns array {EAX, EBX, ECX, EDX} for the given leaf.
@@ -132,38 +125,10 @@ std::string arch_string() {
 }
 #endif
 
-// PATH lookup for tool-presence probing. Same shape as doctor.cpp's `which`
-// but local to this TU so perception stays self-contained.
+// PATH lookup for tool-presence probing — delegates to path_search so
+// doctor and perception share the same resolution rules.
 bool tool_on_path(std::string_view tool) {
-#ifdef _WIN32
-    std::wstring wname = win::from_utf8(tool);
-    static const std::array<const wchar_t*, 5> exts = {L".exe", L".cmd", L".bat", L".com", L""};
-    for (auto ext : exts) {
-        std::wstring trial = wname;
-        if (ext[0] != 0) trial += ext;
-        wchar_t buf[MAX_PATH * 4] = {};
-        LPWSTR fp = nullptr;
-        DWORD got = SearchPathW(nullptr, trial.c_str(), nullptr,
-                                static_cast<DWORD>(std::size(buf)), buf, &fp);
-        if (got > 0 && got < std::size(buf)) return true;
-    }
-    return false;
-#else
-    const char* path = std::getenv("PATH");
-    if (!path) return false;
-    std::string p(path);
-    size_t start = 0;
-    while (start <= p.size()) {
-        size_t end = p.find(':', start);
-        if (end == std::string::npos) end = p.size();
-        fs::path candidate = fs::path(p.substr(start, end - start)) / std::string(tool);
-        std::error_code ec;
-        if (fs::exists(candidate, ec)) return true;
-        if (end == p.size()) break;
-        start = end + 1;
-    }
-    return false;
-#endif
+    return path_search::on_path(tool).has_value();
 }
 
 std::string getenv_str(const char* name) {
@@ -227,8 +192,13 @@ Host snapshot() {
     }
 #endif
 
-    // Tools on PATH (cheap fan-out — ~14 SearchPathW calls).
-    for (auto* tool : kProbeTools) {
+    // Tools on PATH — core (the doctor-enforced set) + ecosystem extras
+    // (informational, e.g. node/python/uv/doxygen). Union iteration lets us
+    // share the canonical core list with doctor.cpp without diverging.
+    for (auto tool : tool_list::kCoreTools) {
+        if (tool_on_path(tool)) h.tools_on_path.emplace_back(tool);
+    }
+    for (auto tool : tool_list::kEcosystemExtras) {
         if (tool_on_path(tool)) h.tools_on_path.emplace_back(tool);
     }
 

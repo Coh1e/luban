@@ -30,13 +30,10 @@
 
 #include "../cli.hpp"
 #include "../log.hpp"
+#include "../path_search.hpp"
 #include "../paths.hpp"
 #include "../registry.hpp"
-
-#ifdef _WIN32
-#include <windows.h>
-#include "../util/win.hpp"
-#endif
+#include "../tool_list.hpp"
 
 namespace luban::commands {
 
@@ -44,52 +41,6 @@ namespace {
 
 namespace fs = std::filesystem;
 using nlohmann::json;
-
-// Tools we expect on PATH after a full `luban setup` + `env --user`.
-// Missing one isn't fatal in non-strict mode (text shows "·" not "✓"), but
-// --strict treats any miss as a failure.
-constexpr std::array<const char*, 9> kExpectedTools = {
-    "clang", "clang++", "clangd", "clang-format", "clang-tidy",
-    "cmake", "ninja", "git", "vcpkg",
-};
-
-// PATH lookup. Returns absolute path on hit, empty string on miss.
-std::string which(std::string_view tool) {
-#ifdef _WIN32
-    std::wstring wname = win::from_utf8(tool);
-    // SearchPathW handles PATHEXT for us, but only when the bare name has no
-    // extension. Iterate common executable extensions explicitly so e.g.
-    // `cmake.cmd` (luban shim) matches even though SearchPathW would skip it.
-    wchar_t buf[MAX_PATH * 4] = {};
-    LPWSTR fp = nullptr;
-    static const std::array<const wchar_t*, 5> exts = {L".exe", L".cmd", L".bat", L".com", L""};
-    for (auto ext : exts) {
-        std::wstring trial = wname;
-        if (ext[0] != 0) trial += ext;
-        DWORD got = SearchPathW(nullptr, trial.c_str(), nullptr,
-                                static_cast<DWORD>(std::size(buf)), buf, &fp);
-        if (got > 0 && got < std::size(buf)) {
-            return win::to_utf8(std::wstring(buf, got));
-        }
-    }
-    return {};
-#else
-    const char* path = std::getenv("PATH");
-    if (!path) return {};
-    std::string p(path);
-    size_t start = 0;
-    while (start <= p.size()) {
-        size_t end = p.find(':', start);
-        if (end == std::string::npos) end = p.size();
-        fs::path candidate = fs::path(p.substr(start, end - start)) / std::string(tool);
-        std::error_code ec;
-        if (fs::exists(candidate, ec)) return candidate.string();
-        if (end == p.size()) break;
-        start = end + 1;
-    }
-    return {};
-#endif
-}
 
 // Single check outcome — used by both renderers (text + JSON) so they
 // stay in sync without re-running the work.
@@ -161,9 +112,9 @@ Report build_report() {
 
     // 4. Tools on PATH.
     {
-        for (auto* tool : kExpectedTools) {
-            std::string found = which(tool);
-            r.tools.push_back({tool, found, !found.empty()});
+        for (auto tool : tool_list::kCoreTools) {
+            std::string found = path_search::on_path_str(tool);
+            r.tools.push_back({std::string(tool), found, !found.empty()});
         }
     }
 

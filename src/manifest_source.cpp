@@ -10,6 +10,7 @@
 #include "util/win.hpp"
 #endif
 
+#include "file_util.hpp"
 #include "log.hpp"
 #include "paths.hpp"
 
@@ -50,29 +51,15 @@ fs::path seed_root() {
     return {};
 }
 
-// Read a JSON file, stripping a leading UTF-8 BOM if present (Scoop / Notepad
-// users sometimes save manifests with one). Returns empty string on failure.
-std::string read_text_strip_bom(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return {};
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    std::string s = ss.str();
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF
-        && static_cast<unsigned char>(s[1]) == 0xBB
-        && static_cast<unsigned char>(s[2]) == 0xBF) {
-        s.erase(0, 3);
-    }
-    return s;
-}
-
 // Try to parse a single candidate file. Returns nullopt if the file doesn't
 // exist or the JSON parse fails. Parse failures are logged at warn level —
-// the caller may still succeed via another source.
+// the caller may still succeed via another source. BOM-stripping handles
+// Scoop / Notepad-saved manifests that include a leading UTF-8 BOM that
+// nlohmann::json would otherwise reject.
 std::optional<json> try_parse(const fs::path& path) {
     std::error_code ec;
     if (!fs::exists(path, ec)) return std::nullopt;
-    std::string text = read_text_strip_bom(path);
+    std::string text = file_util::read_text_no_bom(path);
     try {
         return json::parse(text);
     } catch (const std::exception& e) {

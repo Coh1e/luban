@@ -12,6 +12,7 @@
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
 #include "../log.hpp"
+#include "../path_search.hpp"
 #include "../paths.hpp"
 #include "../proc.hpp"
 #include "../registry.hpp"
@@ -69,14 +70,16 @@ int run_run(const cli::ParsedArgs& a) {
     }
     std::string cmd_name = a.positional[0];
 
-    // Resolve via registry first (绕开 .cmd shim 一层 cmd.exe，且 PATH 上同名工具不抢)。
+    // Resolve via registry first — bypasses any one-layer-of-cmd.exe overhead
+    // from .cmd shims, and prevents same-named PATH entries from winning over
+    // luban-managed binaries.
     fs::path exe;
     if (auto hit = registry::resolve_alias(cmd_name)) {
         exe = hit->exe;
     } else {
-        // Fallback：用 SearchPathW 在 luban-augmented PATH 上找。
-        // 但 SearchPathW 用的是当前进程 PATH，所以先把 luban 的 toolchain dirs
-        // 临时加到本进程 PATH。
+        // Fallback: search PATH augmented with luban's toolchain dirs.
+        // path_search::on_path reads the current process PATH, so we temporarily
+        // splice luban's toolchain dirs in front, search, and restore.
 #ifdef _WIN32
         std::string current_path;
         if (const char* p = std::getenv("PATH"); p) current_path = p;
@@ -88,22 +91,12 @@ int run_run(const cli::ParsedArgs& a) {
         if (!current_path.empty()) augmented += ';' + current_path;
         SetEnvironmentVariableA("PATH", augmented.c_str());
 
-        wchar_t buf[MAX_PATH * 4] = {};
-        auto wname = std::wstring(cmd_name.begin(), cmd_name.end());
-        for (auto* ext : {L".exe", L".cmd", L".bat", L""}) {
-            std::wstring trial = wname + ext;
-            DWORD got = SearchPathW(nullptr, trial.c_str(), nullptr,
-                                    static_cast<DWORD>(std::size(buf)), buf, nullptr);
-            if (got > 0 && got < std::size(buf)) {
-                int n = WideCharToMultiByte(CP_UTF8, 0, buf, got, nullptr, 0, nullptr, nullptr);
-                std::string s(static_cast<size_t>(n), '\0');
-                WideCharToMultiByte(CP_UTF8, 0, buf, got, s.data(), n, nullptr, nullptr);
-                exe = fs::path(s);
-                break;
-            }
-        }
+        if (auto hit = path_search::on_path(cmd_name)) exe = *hit;
+
         // restore PATH
         SetEnvironmentVariableA("PATH", current_path.c_str());
+#else
+        if (auto hit = path_search::on_path(cmd_name)) exe = *hit;
 #endif
     }
 

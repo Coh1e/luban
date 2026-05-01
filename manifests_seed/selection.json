@@ -19,6 +19,8 @@
     {"name": "node",       "enabled": false,
      "_why": "Node.js LTS. Required by emscripten; also useful standalone. Opt in via `luban setup --with node`."},
     {"name": "emscripten", "enabled": false,
-     "_why": "C++ → WebAssembly toolchain. Pulls node automatically via depends. Opt in via `luban setup --with emscripten`."}
+     "_why": "C++ → WebAssembly toolchain. Pulls node automatically via depends. Opt in via `luban setup --with emscripten`."},
+    {"name": "doxygen",    "enabled": false,
+     "_why": "API doc generator. Required by `luban doc`. Opt in via `luban setup --with doxygen` (also pulls graphviz if you want call/include graphs)."}
   ]
 }

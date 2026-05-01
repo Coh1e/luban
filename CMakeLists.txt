@@ -66,6 +66,8 @@ set(LUBAN_SOURCES
     src/perception.cpp
     src/msvc_env.cpp
     src/marker_block.cpp
+    src/file_util.cpp
+    src/path_search.cpp
     third_party/miniz.c
     src/commands/doctor.cpp
     src/commands/env.cpp
@@ -152,6 +154,8 @@ if(LUBAN_BUILD_TESTS)
         tests/test_lib_targets.cpp
         tests/test_luban_toml.cpp
         tests/test_marker_block.cpp
+        tests/test_file_util.cpp
+        tests/test_path_search.cpp
         # Leaf production sources we exercise. NOT main.cpp / cli.cpp /
         # commands/ — those are integration territory (smoke.bat covers
         # them end-to-end).
@@ -161,6 +165,8 @@ if(LUBAN_BUILD_TESTS)
         src/luban_toml.cpp
         src/paths.cpp
         src/marker_block.cpp
+        src/file_util.cpp
+        src/path_search.cpp
     )
     target_include_directories(luban-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/src
