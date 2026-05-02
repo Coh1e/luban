@@ -3,7 +3,7 @@ project(luban
     VERSION 0.1.2
     LANGUAGES CXX C)
 
-# Single source of truth for the version. cli.cpp / self_cmd.cpp / download.cpp
+# Single source of truth for the version. cli.cpp / self.cpp / download.cpp
 # all read from the generated header; release flow is "edit VERSION above,
 # rebuild" — no more `sed kVersion` dance across multiple files.
 configure_file(
@@ -76,10 +76,10 @@ set(LUBAN_SOURCES
     src/commands/shim_cmd.cpp
     src/commands/setup.cpp
     src/commands/add.cpp
-    src/commands/target_cmd.cpp
+    src/commands/target.cpp
     src/commands/which_search.cpp
     src/commands/describe.cpp
-    src/commands/self_cmd.cpp
+    src/commands/self.cpp
     src/commands/completion.cpp
     src/commands/doc.cpp
     src/commands/specs.cpp
