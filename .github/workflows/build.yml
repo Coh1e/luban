@@ -180,18 +180,25 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build deps
+        # ubuntu-24.04 default g++ is gcc-13.2 which has full C++23 +
+        # <expected> support in libstdc++. clang-18 is also available but
+        # picks up a libstdc++ search path that landed on an older
+        # version missing <expected> on first run — switching to g++
+        # sidesteps the ambiguity.
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang
+          sudo apt-get install -y cmake ninja-build g++
 
       - name: Verify toolchain
         run: |
-          clang --version
+          g++ --version
           cmake --version
           ninja --version
 
-      - name: CMake configure (release)
-        run: cmake --preset release
+      - name: CMake configure (release, override compiler to g++)
+        # Override CMakePresets's clang pin — Linux build uses g++ since
+        # libstdc++ + clang's libstdc++ search isn't yet sorted.
+        run: cmake --preset release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 
       - name: Build luban
         run: cmake --build --preset release

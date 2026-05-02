@@ -326,7 +326,8 @@ int run_uninstall(bool yes, bool keep_data) {
     log::infof("luban will be removed shortly. Goodbye.");
 #else
     fs::path self = self_exe_path();
-    fs::remove(self, std::error_code{});
+    std::error_code ec;
+    fs::remove(self, ec);  // best-effort; failure is non-fatal
 #endif
 
     return 0;
