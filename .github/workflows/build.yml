@@ -163,3 +163,69 @@ jobs:
                 build/release/SHA256SUMS `
                 --clobber
           }
+
+  # ---- M4 Phase A: POSIX build smoke (ADR-0006) ----
+  # First non-Windows CI feedback. Build-only — does NOT run unit tests on
+  # POSIX yet (test_hash exercises hash::hash_file which is a nullopt stub
+  # there until Phase B implements OpenSSL backing). luban itself builds
+  # against the existing #else branches in proc/log/paths/etc.
+  #
+  # continue-on-error: true keeps the windows build's success/failure as
+  # the gating signal while the POSIX branches stabilize. Drop the flag
+  # once Linux+macOS go green for a few consecutive runs.
+  linux-build:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Verify toolchain
+        run: |
+          clang --version
+          cmake --version
+          ninja --version
+
+      - name: CMake configure (release)
+        run: cmake --preset release
+
+      - name: Build luban
+        run: cmake --build --preset release
+
+      - name: Build luban-tests
+        run: cmake --build --preset release --target luban-tests
+
+      - name: Smoke run luban --version (no-op on POSIX, just verifies link)
+        run: ./build/release/luban --version || echo "luban --version exit non-zero (expected for now)"
+
+  macos-build:
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          brew install cmake ninja
+
+      - name: Verify toolchain
+        run: |
+          clang --version
+          cmake --version
+          ninja --version
+
+      - name: CMake configure (release)
+        run: cmake --preset release
+
+      - name: Build luban
+        run: cmake --build --preset release
+
+      - name: Build luban-tests
+        run: cmake --build --preset release --target luban-tests
+
+      - name: Smoke run luban --version
+        run: ./build/release/luban --version || echo "luban --version exit non-zero (expected for now)"

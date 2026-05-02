@@ -98,9 +98,6 @@ if(MSVC)
     target_compile_options(luban PRIVATE /W4 /permissive- /utf-8)
 else()
     target_compile_options(luban PRIVATE -Wall -Wextra -Wpedantic)
-    # Static link to avoid runtime DLL dependency on libc++/libunwind/libwinpthread.
-    # See plan §7: hello.exe DLL-not-found incident.
-    target_link_options(luban PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 if(WIN32)
@@ -115,6 +112,17 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         NOMINMAX
     )
+    # Static link on Windows so luban.exe runs on a fresh Win10 box with no PATH
+    # (no DLL dependency on libc++/libunwind/libwinpthread). On POSIX this is
+    # famously hard (glibc) and unnecessary — packagers expect dynamic libc.
+    if(NOT MSVC)
+        target_link_options(luban PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+else()
+    # POSIX: download.cpp uses std::thread (chunked Range downloads), which
+    # needs pthread on Linux/macOS for the std::thread implementation.
+    find_package(Threads REQUIRED)
+    target_link_libraries(luban PRIVATE Threads::Threads)
 endif()
 
 # ---- luban-shim.exe : tiny native exe proxy (rustup-style) ----
@@ -187,14 +195,21 @@ if(LUBAN_BUILD_TESTS)
         target_compile_options(luban-tests PRIVATE /W4 /permissive- /utf-8)
     else()
         target_compile_options(luban-tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
-        # Static-link to keep the test binary portable across runners
-        # (CI image, dev shells via git-bash) and avoid runtime DLL
-        # discovery surprises.
-        target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
     if(WIN32)
         target_link_libraries(luban-tests PRIVATE shell32 ole32 advapi32 bcrypt)
         target_compile_definitions(luban-tests PRIVATE
             UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+        if(NOT MSVC)
+            # Static-link on Windows for portability across runners
+            # (CI image, dev shells via git-bash) without DLL discovery.
+            target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
+        endif()
+    else()
+        # POSIX: same threading dep as luban target (file_util/path_search are
+        # fine, but src/archive.cpp pulls miniz which uses pthread on POSIX
+        # for atomic ops in some configurations; declare explicitly).
+        find_package(Threads REQUIRED)
+        target_link_libraries(luban-tests PRIVATE Threads::Threads)
     endif()
 endif()
