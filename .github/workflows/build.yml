@@ -165,17 +165,15 @@ jobs:
           }
 
   # ---- M4 Phase A: POSIX build smoke (ADR-0006) ----
-  # First non-Windows CI feedback. Build-only — does NOT run unit tests on
-  # POSIX yet (test_hash exercises hash::hash_file which is a nullopt stub
-  # there until Phase B implements OpenSSL backing). luban itself builds
-  # against the existing #else branches in proc/log/paths/etc.
+  # Build-only — does NOT run unit tests on POSIX yet (test_hash exercises
+  # hash::hash_file which is a nullopt stub there until Phase B implements
+  # OpenSSL backing). luban itself builds against the existing #else
+  # branches in proc/log/paths/etc.
   #
-  # continue-on-error: true keeps the windows build's success/failure as
-  # the gating signal while the POSIX branches stabilize. Drop the flag
-  # once Linux+macOS go green for a few consecutive runs.
+  # continue-on-error dropped after `25b1417` and `52c9838` both went green.
+  # POSIX builds are now gating signals; a regression here will fail CI.
   linux-build:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -211,7 +209,6 @@ jobs:
 
   macos-build:
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
