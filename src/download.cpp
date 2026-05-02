@@ -527,6 +527,73 @@ std::expected<int64_t, Error> download_chunked(
     return total_written;
 }
 
+// Common post-download finalization: verify hash + atomic rename to dest.
+// Both the chunked and single-stream branches need exactly this sequence
+// after writing tmp; extracting it into a helper removes ~30 lines of
+// near-duplicate code from each branch (F6).
+//
+// `precomputed_sha256_hex` lets the single-stream path pass its
+// streaming-computed sha256 to skip a re-read; the chunked path leaves it
+// nullopt because concurrent writers can't share a streaming hash state,
+// so it always recomputes via hash::hash_file. If `expected_hash` is set
+// to a non-sha256 algo, we re-read regardless.
+//
+// On any failure, tmp is removed and the original Error is returned.
+// On success, tmp has been moved to dest and its sha256 HashSpec is returned.
+std::expected<hash::HashSpec, Error> verify_and_promote(
+    const fs::path& tmp,
+    const fs::path& dest,
+    const std::optional<hash::HashSpec>& expected,
+    const std::string& url,
+    const std::optional<std::string>& precomputed_sha256_hex = std::nullopt) {
+    std::error_code ec;
+
+    // Compute (or accept) the sha256 of the tmp file.
+    std::string sha256_hex;
+    if (precomputed_sha256_hex) {
+        sha256_hex = *precomputed_sha256_hex;
+    } else {
+        auto sha = hash::hash_file(tmp, hash::Algorithm::Sha256);
+        if (!sha) {
+            fs::remove(tmp, ec);
+            return std::unexpected(Error{ErrorKind::Io, "post-download hash_file failed"});
+        }
+        sha256_hex = sha->hex;
+    }
+
+    // Hash check against expected (if caller specified one).
+    if (expected) {
+        const auto& exp = *expected;
+        std::string actual_hex;
+        if (exp.algo == hash::Algorithm::Sha256) {
+            actual_hex = sha256_hex;
+        } else {
+            // Non-sha256 expected algo — re-read the file with that algo.
+            auto h = hash::hash_file(tmp, exp.algo);
+            actual_hex = h ? h->hex : "";
+        }
+        if (actual_hex != exp.hex) {
+            fs::remove(tmp, ec);
+            return std::unexpected(Error{
+                ErrorKind::HashMismatch,
+                std::format("hash mismatch for {}\n  expected {}:{}\n  actual   {}:{}",
+                            url, hash::algo_name(exp.algo), exp.hex,
+                            hash::algo_name(exp.algo), actual_hex)});
+        }
+    }
+
+    // Atomic rename tmp → dest with cross-volume copy fallback.
+    fs::remove(dest, ec);
+    fs::rename(tmp, dest, ec);
+    if (ec) {
+        ec.clear();
+        fs::copy_file(tmp, dest, fs::copy_options::overwrite_existing, ec);
+        std::error_code rm_ec;
+        fs::remove(tmp, rm_ec);
+        if (ec) return std::unexpected(Error{ErrorKind::Io, "rename/copy failed"});
+    }
+    return hash::HashSpec{hash::Algorithm::Sha256, sha256_hex};
+}
 #endif  // _WIN32
 
 }  // namespace
@@ -583,36 +650,12 @@ std::expected<DownloadResult, Error> download(
             fs::remove(tmp, ec);
             // Fall through to single-stream below.
         } else {
-            // Verify hash by re-reading the assembled file. Slight cost
-            // (~0.5s per 100 MB on SSD) but the only correct option since
-            // we couldn't stream-hash across N threads.
-            auto sha = hash::hash_file(tmp, hash::Algorithm::Sha256);
-            if (!sha) {
-                fs::remove(tmp, ec);
-                return std::unexpected(Error{ErrorKind::Io, "post-chunk hash_file failed"});
-            }
-            if (opts.expected_hash) {
-                const auto& exp = *opts.expected_hash;
-                std::string actual_hex = (exp.algo == hash::Algorithm::Sha256)
-                    ? sha->hex
-                    : (hash::hash_file(tmp, exp.algo).value_or(hash::HashSpec{}).hex);
-                if (actual_hex != exp.hex) {
-                    fs::remove(tmp, ec);
-                    return std::unexpected(Error{
-                        ErrorKind::HashMismatch,
-                        std::format("hash mismatch for {}\n  expected {}:{}\n  actual   {}:{}",
-                                    url, hash::algo_name(exp.algo), exp.hex,
-                                    hash::algo_name(exp.algo), actual_hex)});
-                }
-            }
-            fs::remove(dest, ec);
-            fs::rename(tmp, dest, ec);
-            if (ec) {
-                fs::copy_file(tmp, dest, fs::copy_options::overwrite_existing, ec);
-                fs::remove(tmp, ec);
-                if (ec) return std::unexpected(Error{ErrorKind::Io, "rename/copy failed"});
-            }
-            return DownloadResult{*sha, *rc};
+            // Chunked path can't share a streaming hash state across N
+            // threads — verify_and_promote re-reads the assembled file.
+            // Slight cost (~0.5s per 100 MB on SSD), only correct option.
+            auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
+            if (!promoted) return std::unexpected(promoted.error());
+            return DownloadResult{*promoted, *rc};
         }
     }
 
@@ -671,44 +714,14 @@ std::expected<DownloadResult, Error> download(
             continue;
         }
 
+        // Single-stream path computed sha256 incrementally — pass to
+        // verify_and_promote so it can skip the re-read for the sha256
+        // check (the non-sha256 case still re-reads, by design).
         std::string actual_sha = sha.finish();
-        // 校验
-        if (opts.expected_hash) {
-            std::optional<hash::HashSpec> actual_other;
-            const auto& exp = *opts.expected_hash;
-            std::string actual_check_hex;
-            if (exp.algo == hash::Algorithm::Sha256) {
-                actual_check_hex = actual_sha;
-            } else {
-                // 其他算法：再读一遍文件做哈希
-                actual_other = hash::hash_file(tmp, exp.algo);
-                actual_check_hex = actual_other ? actual_other->hex : "";
-            }
-            if (actual_check_hex != exp.hex) {
-                fs::remove(tmp, ec);
-                return std::unexpected(Error{
-                    ErrorKind::HashMismatch,
-                    std::format("hash mismatch for {}\n  expected {}:{}\n  actual   {}:{}",
-                                url, hash::algo_name(exp.algo), exp.hex,
-                                hash::algo_name(exp.algo), actual_check_hex)
-                });
-            }
-        }
-
-        // atomic rename
-        fs::remove(dest, ec);
-        fs::rename(tmp, dest, ec);
-        if (ec) {
-            // 跨卷 fallback: copy + remove
-            fs::copy_file(tmp, dest, fs::copy_options::overwrite_existing, ec);
-            fs::remove(tmp, ec);
-            if (ec) return std::unexpected(Error{ErrorKind::Io, "rename/copy failed"});
-        }
-
-        return DownloadResult{
-            hash::HashSpec{hash::Algorithm::Sha256, actual_sha},
-            *rc,
-        };
+        auto promoted = verify_and_promote(
+            tmp, dest, opts.expected_hash, url, actual_sha);
+        if (!promoted) return std::unexpected(promoted.error());
+        return DownloadResult{*promoted, *rc};
     }
     return std::unexpected(last_err);
 #else
