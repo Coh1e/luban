@@ -54,7 +54,7 @@ The "user-facing" half of luban's value:
 |---|---|
 | Workspace support | `luban.toml [workspace] members = [...]`, shared build cache |
 | Toolchain pin per project | ✅ Phase 1 done (v0.3) — `luban.toml [toolchain]` map, `luban build` warns on mismatch. Phase 2: `--strict-pins` flag for CI. |
-| Linux/macOS port | Design frozen — see ADR-0006. Phase A: build clean on POSIX; Phase B: hash via OpenSSL + download via libcurl; Phase C: `~/.bashrc` PATH writes, symlink shims, platform triplets. |
+| Linux/macOS port | ✅ Phase A done (CI builds clean on Ubuntu + macOS, gating signal). ✅ Phase B half 1 done (hash via OpenSSL EVP — 141/141 unit tests pass on POSIX). 🚧 Phase B half 2 (download via libcurl) and Phase C (`~/.bashrc` PATH writes, symlink shims, platform triplets, `install.sh`) remain. See ADR-0006. |
 | luban registry (OQ-7) | Design frozen — see ADR-0005. vcpkg-complementary; categories: lib, lib-rs (Rust FFI via cxx-bridge), template, toolchain (manifests_seed migrates here). |
 | TUI / interactive mode | `luban setup -i`, FTXUI; first-run wizard |
 | Visualization (`/luban describe --view`) | dump JSON, open static HTML page with D3.js graph |

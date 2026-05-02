@@ -32,18 +32,24 @@
   - B. 不做，让用户用 cmake superbuild
 - **偏好**：A，但优先级低于 OQ-1 / OQ-4。
 
-## OQ-4：Linux/macOS port 时间表？ — 设计冻结 ✅ (ADR-0006)
+## OQ-4：Linux/macOS port 时间表？ — Phase A + B 半 ✅ (M4 进行中)
 
 - **背景**：架构已预留（XDG-first、`paths.cpp` 平台分支）；阻塞点是 `proc.cpp`
   的 POSIX 实现 + `download.cpp` 换 libcurl + 生态适配。
-- **状态（v0.3）**：[ADR-0006](../decisions/ADR-0006-posix-port.md) 落地三阶段
-  方案。源码层 19 个 .cpp 已经分平台，16 个有 honest stub；luban-shim 已 gate
-  到 `if(WIN32)`。
-- **Phase A（M4 entry gate）**：CI 加 ubuntu/macos build runner，stubs 仍是
-  stubs，doctor 给出诚实的"本平台不可用"诊断。
-- **Phase B**：hash.cpp 走 OpenSSL `EVP_*`，download.cpp 走 libcurl（系统库——
-  ADR-0001 invariant 1 escape hatch）。
-- **Phase C**：POSIX 习惯（`~/.bashrc` 写 PATH、symlink shim、平台 triplet 默认值）。
+- **设计冻结**：[ADR-0006](../decisions/ADR-0006-posix-port.md) 三阶段方案。
+- **Phase A ✅ 完成**：ubuntu-latest + macos-latest 加入 CI matrix（gating，
+  非 continue-on-error）；`-static` Win32-only；POSIX 加 `Threads::Threads`；
+  Linux 用 g++-13（libstdc++ 的 `<expected>`）；macOS clang/libc++（修
+  `::isatty` 缺 `<unistd.h>` + `fs::remove` lvalue ec）。三平台 build 全绿。
+- **Phase B 进度**：
+  - **hash ✅ 完成**：`hash::hash_file` POSIX 用 OpenSSL EVP；CI 运行
+    luban-tests on Linux + macOS（141 cases 通过；Windows 146）。
+  - **download 🚧 待办**：仍是 stub `"POSIX download not implemented"`。
+    需要 libcurl 实装：`download()` retry 循环 / `head_info()` HEAD 探测 /
+    `download_chunked()` Range 并发 / `download_range_to_file()` 单 chunk。
+    StreamingSha256 也要 EVP 版（替代 BCrypt）。
+- **Phase C 待办**：`~/.bashrc` 写 PATH、symlink shim 模型、平台 triplet 默认值
+  （linux: `x64-linux` / macos: `arm64-osx`）、`install.sh`。
 - **Out of scope**：cross-target build、MSVC on POSIX。
 
 ## OQ-5：`describe --json` 是否纳入稳定 schema？
