@@ -9,6 +9,10 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
+#else
+#include <unistd.h>   // ::isatty (POSIX) — macOS clang doesn't pull it in
+                      // via any of the C++ headers above, unlike libstdc++
+                      // on Linux which is more permissive.
 #endif
 
 namespace luban::log {
