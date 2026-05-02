@@ -17,6 +17,9 @@
 #include <bcrypt.h>
 #include <io.h>
 #include "util/win.hpp"
+#else
+#include <curl/curl.h>     // POSIX HTTP backend (ADR-0006 Phase B)
+#include <unistd.h>        // mkstemp / close
 #endif
 
 #include "luban/version.hpp"
@@ -29,23 +32,9 @@ namespace {
 
 constexpr size_t kChunk = 1 << 16;        // 64 KiB
 
-// User-Agent header. Built once from the cmake-injected version string so it
-// always reflects the running binary (was hand-pinned at "0.1" pre-v0.2 and
-// drifted out of sync with kVersion). WinHttpOpen wants UTF-16, so we widen.
-const std::wstring& user_agent() {
-    static const std::wstring s = [] {
-        std::string narrow = "luban/" + std::string(luban::kLubanVersion)
-                           + " (+https://github.com/Coh1e/luban)";
-        std::wstring wide(narrow.size(), L' ');
-        for (size_t i = 0; i < narrow.size(); ++i) wide[i] = static_cast<wchar_t>(narrow[i]);
-        return wide;
-    }();
-    return s;
-}
-
-#ifdef _WIN32
-
-// ---- 进度条（stderr，TTY 时显示）----
+// ---- Progress bar (stderr, TTY only) ----
+// Cross-platform: uses cstdio + chrono only. Both Win32 (do_request) and
+// POSIX (libcurl-backed download) populate it via the sink callback.
 struct Progress {
     std::string label;
     int64_t total = -1;       // -1 = 未知（Content-Length 缺失）
@@ -108,6 +97,22 @@ struct Progress {
         std::fflush(stderr);
     }
 };
+
+#ifdef _WIN32
+
+// User-Agent header (wstring form). WinHttpOpen wants UTF-16. The POSIX
+// libcurl path uses a parallel `user_agent_utf8()` returning std::string
+// in the !_WIN32 block below.
+const std::wstring& user_agent() {
+    static const std::wstring s = [] {
+        std::string narrow = "luban/" + std::string(luban::kLubanVersion)
+                           + " (+https://github.com/Coh1e/luban)";
+        std::wstring wide(narrow.size(), L' ');
+        for (size_t i = 0; i < narrow.size(); ++i) wide[i] = static_cast<wchar_t>(narrow[i]);
+        return wide;
+    }();
+    return s;
+}
 
 // ---- BCrypt 流式 SHA256 ----
 struct StreamingSha256 {
@@ -527,6 +532,9 @@ std::expected<int64_t, Error> download_chunked(
     return total_written;
 }
 
+#endif  // _WIN32 (closes the Win32-specific helpers block — verify_and_promote
+        // and the POSIX block below are cross-platform / POSIX-only)
+
 // Common post-download finalization: verify hash + atomic rename to dest.
 // Both the chunked and single-stream branches need exactly this sequence
 // after writing tmp; extracting it into a helper removes ~30 lines of
@@ -540,6 +548,9 @@ std::expected<int64_t, Error> download_chunked(
 //
 // On any failure, tmp is removed and the original Error is returned.
 // On success, tmp has been moved to dest and its sha256 HashSpec is returned.
+//
+// Cross-platform: uses hash::hash_file (POSIX impl via OpenSSL EVP) +
+// std::filesystem only.
 std::expected<hash::HashSpec, Error> verify_and_promote(
     const fs::path& tmp,
     const fs::path& dest,
@@ -594,7 +605,97 @@ std::expected<hash::HashSpec, Error> verify_and_promote(
     }
     return hash::HashSpec{hash::Algorithm::Sha256, sha256_hex};
 }
-#endif  // _WIN32
+
+#ifndef _WIN32
+// ---- POSIX HTTP backend (libcurl) ----
+//
+// Minimum-viable Phase B half 2: single-stream download via curl_easy.
+// No chunked Range support yet (would need head_info + Range request +
+// concurrent CURL handles); deferred to a follow-up PR. The retry +
+// hash-verify + atomic-rename machinery (download() / verify_and_promote)
+// is shared with the Win32 path now that verify_and_promote moved out
+// of the #ifdef _WIN32 block.
+
+const std::string& user_agent_utf8() {
+    // Mirrors the wstring user_agent() on Win32 — same UA string just in
+    // UTF-8 since libcurl's CURLOPT_USERAGENT wants `const char*`.
+    static const std::string ua =
+        std::string("luban/") + luban::kLubanVersion + " (+https://github.com/Coh1e/luban)";
+    return ua;
+}
+
+// libcurl write callback. userdata points to a Sink&-typed lambda
+// stored in CurlSinkCtx. Returning fewer bytes than supplied aborts
+// the transfer (libcurl maps that to CURLE_WRITE_ERROR).
+template <class Sink>
+struct CurlSinkCtx {
+    Sink* sink;
+    int64_t total = -1;
+    std::optional<Error> err;
+};
+
+template <class Sink>
+size_t curl_write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto* c = static_cast<CurlSinkCtx<Sink>*>(userdata);
+    size_t n = size * nmemb;
+    auto rc = (*c->sink)(reinterpret_cast<const unsigned char*>(ptr), n, c->total);
+    if (!rc) { c->err = rc.error(); return 0; }
+    return n;
+}
+
+template <class Sink>
+std::expected<int64_t, Error> do_request(
+    const std::string& url, int timeout_seconds, Sink&& sink) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return std::unexpected(Error{ErrorKind::Network, "curl_easy_init failed"});
+
+    CurlSinkCtx<Sink> ctx{&sink, -1, std::nullopt};
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_utf8().c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout_seconds));
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0L);   // we inspect status ourselves
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb<Sink>);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+
+    // Probe Content-Length up front via HEAD-equivalent isn't done here —
+    // libcurl gives us CURLINFO_CONTENT_LENGTH_DOWNLOAD_T after perform.
+    // For Progress display, the sink can read total from the ctx if we
+    // populate it in a header-callback; keeping minimal for now.
+
+    CURLcode rc = curl_easy_perform(curl);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_off_t bytes_dl = 0;
+    curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &bytes_dl);
+
+    curl_easy_cleanup(curl);
+
+    if (rc != CURLE_OK) {
+        // Sink-injected error wins (more specific than libcurl's generic
+        // CURLE_WRITE_ERROR when the sink itself rejected a chunk).
+        if (ctx.err) return std::unexpected(*ctx.err);
+        return std::unexpected(Error{
+            ErrorKind::Network,
+            std::format("libcurl: {} (curl error {})",
+                        curl_easy_strerror(rc), static_cast<int>(rc))});
+    }
+    if (http_code >= 400 && http_code < 500) {
+        return std::unexpected(Error{
+            ErrorKind::HttpClient,
+            std::format("HTTP {} for {}", http_code, url)});
+    }
+    if (http_code >= 500) {
+        return std::unexpected(Error{
+            ErrorKind::Network,
+            std::format("HTTP {} for {}", http_code, url)});
+    }
+    return static_cast<int64_t>(bytes_dl);
+}
+#endif  // !_WIN32
 
 }  // namespace
 
@@ -725,13 +826,78 @@ std::expected<DownloadResult, Error> download(
     }
     return std::unexpected(last_err);
 #else
-    (void)url; (void)dest; (void)opts;
-    return std::unexpected(Error{ErrorKind::Network, "POSIX download not implemented"});
+    // POSIX download path (libcurl). Minimum-viable Phase B half 2:
+    // single-stream only (no chunked Range yet). Hash is recomputed on
+    // disk via verify_and_promote — slightly slower than Win32's
+    // streaming sha but correct and unblocks `luban setup` end-to-end.
+    std::error_code ec;
+    fs::create_directories(dest.parent_path(), ec);
+
+    std::string label = opts.label.empty()
+        ? (url.rfind('/') != std::string::npos ? url.substr(url.rfind('/') + 1) : url)
+        : opts.label;
+
+    Error last_err{ErrorKind::Network, "no attempts"};
+    int retries = std::max(1, opts.retries);
+    for (int attempt = 1; attempt <= retries; ++attempt) {
+        // mkstemp creates an o600 file in dest's parent dir, returning fd.
+        // The XXXXXX template gets replaced in-place; we pull the resulting
+        // path out via the buffer.
+        std::string tmpl = (dest.parent_path() / ".dl-XXXXXX").string();
+        std::vector<char> buf(tmpl.begin(), tmpl.end());
+        buf.push_back('\0');
+        int fd = mkstemp(buf.data());
+        if (fd < 0) return std::unexpected(Error{ErrorKind::Io, "mkstemp failed"});
+        fs::path tmp = fs::path(buf.data());
+
+        FILE* fp = fdopen(fd, "wb");
+        if (!fp) {
+            ::close(fd);
+            fs::remove(tmp, ec);
+            return std::unexpected(Error{ErrorKind::Io, "fdopen failed"});
+        }
+
+        std::optional<Progress> prog;
+        auto sink = [&](const unsigned char* data, size_t n, int64_t total)
+            -> std::expected<void, Error> {
+            if (!prog) prog.emplace(label, total);
+            if (std::fwrite(data, 1, n, fp) != n) {
+                return std::unexpected(Error{ErrorKind::Io, "fwrite failed"});
+            }
+            prog->update(n);
+            return {};
+        };
+
+        auto rc = do_request(url, opts.timeout_seconds, sink);
+        if (prog) prog->finish();
+        std::fclose(fp);
+
+        if (!rc.has_value()) {
+            last_err = rc.error();
+            fs::remove(tmp, ec);
+            // 4xx not retried — server says it'll never succeed.
+            if (last_err.kind == ErrorKind::HttpClient) return std::unexpected(last_err);
+            if (attempt < retries) {
+                int wait = 1 << (attempt - 1);
+                log::warnf("download attempt {} failed ({}); retry in {}s",
+                           attempt, last_err.message, wait);
+                std::this_thread::sleep_for(std::chrono::seconds(wait));
+            }
+            continue;
+        }
+
+        // No streaming sha on POSIX yet — verify_and_promote recomputes
+        // by re-reading. Future: parallel POSIX StreamingSha256 via EVP.
+        auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
+        if (!promoted) return std::unexpected(promoted.error());
+        return DownloadResult{*promoted, *rc};
+    }
+    return std::unexpected(last_err);
 #endif
 }
 
 std::expected<std::string, Error> fetch_text(const std::string& url, int timeout_seconds) {
-#ifdef _WIN32
+    // Cross-platform now — do_request has both Win32 and POSIX impls.
     std::string buf;
     auto sink = [&](const unsigned char* data, size_t n, int64_t /*total*/)
         -> std::expected<void, Error> {
@@ -741,10 +907,6 @@ std::expected<std::string, Error> fetch_text(const std::string& url, int timeout
     auto rc = do_request(url, timeout_seconds, sink);
     if (!rc.has_value()) return std::unexpected(rc.error());
     return buf;
-#else
-    (void)url; (void)timeout_seconds;
-    return std::unexpected(Error{ErrorKind::Network, "POSIX not implemented"});
-#endif
 }
 
 }  // namespace luban::download

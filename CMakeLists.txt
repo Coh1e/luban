@@ -123,11 +123,14 @@ else()
     # - download.cpp uses std::thread (chunked Range downloads) → pthread.
     # - hash.cpp uses OpenSSL EVP for sha256/sha512/sha1/md5 (ADR-0006
     #   Phase B). System libssl is the pragmatic choice — Ubuntu/Debian/
-    #   Fedora/Homebrew all ship it; vendoring mbedtls would mean ~5k
-    #   lines of single-header bundle.
+    #   Fedora/Homebrew all ship it.
+    # - download.cpp uses libcurl for HTTP on POSIX (ADR-0006 Phase B
+    #   half 2). Same system-lib reasoning as OpenSSL — every distro
+    #   ships it, and libcurl is the de-facto C HTTP client.
     find_package(Threads REQUIRED)
     find_package(OpenSSL REQUIRED)
-    target_link_libraries(luban PRIVATE Threads::Threads OpenSSL::Crypto)
+    find_package(CURL REQUIRED)
+    target_link_libraries(luban PRIVATE Threads::Threads OpenSSL::Crypto CURL::libcurl)
 endif()
 
 # ---- luban-shim.exe : tiny native exe proxy (rustup-style) ----

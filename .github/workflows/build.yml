@@ -184,9 +184,10 @@ jobs:
         # version missing <expected> on first run — switching to g++
         # sidesteps the ambiguity.
         # libssl-dev: hash.cpp uses OpenSSL EVP on POSIX (ADR-0006 Phase B).
+        # libcurl4-openssl-dev: download.cpp uses libcurl on POSIX (Phase B).
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ libssl-dev
+          sudo apt-get install -y cmake ninja-build g++ libssl-dev libcurl4-openssl-dev
 
       - name: Verify toolchain
         run: |
