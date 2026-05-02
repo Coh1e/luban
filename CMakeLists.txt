@@ -119,10 +119,15 @@ if(WIN32)
         target_link_options(luban PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 else()
-    # POSIX: download.cpp uses std::thread (chunked Range downloads), which
-    # needs pthread on Linux/macOS for the std::thread implementation.
+    # POSIX:
+    # - download.cpp uses std::thread (chunked Range downloads) → pthread.
+    # - hash.cpp uses OpenSSL EVP for sha256/sha512/sha1/md5 (ADR-0006
+    #   Phase B). System libssl is the pragmatic choice — Ubuntu/Debian/
+    #   Fedora/Homebrew all ship it; vendoring mbedtls would mean ~5k
+    #   lines of single-header bundle.
     find_package(Threads REQUIRED)
-    target_link_libraries(luban PRIVATE Threads::Threads)
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(luban PRIVATE Threads::Threads OpenSSL::Crypto)
 endif()
 
 # ---- luban-shim.exe : tiny native exe proxy (rustup-style) ----
@@ -206,10 +211,11 @@ if(LUBAN_BUILD_TESTS)
             target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
         endif()
     else()
-        # POSIX: same threading dep as luban target (file_util/path_search are
-        # fine, but src/archive.cpp pulls miniz which uses pthread on POSIX
-        # for atomic ops in some configurations; declare explicitly).
+        # POSIX: same Threads + OpenSSL deps as the luban target. luban-tests
+        # links src/hash.cpp which now uses EVP_* on POSIX, so it needs the
+        # same crypto lib at link time.
         find_package(Threads REQUIRED)
-        target_link_libraries(luban-tests PRIVATE Threads::Threads)
+        find_package(OpenSSL REQUIRED)
+        target_link_libraries(luban-tests PRIVATE Threads::Threads OpenSSL::Crypto)
     endif()
 endif()

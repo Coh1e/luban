@@ -183,9 +183,10 @@ jobs:
         # picks up a libstdc++ search path that landed on an older
         # version missing <expected> on first run — switching to g++
         # sidesteps the ambiguity.
+        # libssl-dev: hash.cpp uses OpenSSL EVP on POSIX (ADR-0006 Phase B).
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++
+          sudo apt-get install -y cmake ninja-build g++ libssl-dev
 
       - name: Verify toolchain
         run: |
@@ -204,8 +205,13 @@ jobs:
       - name: Build luban-tests
         run: cmake --build --preset release --target luban-tests
 
-      - name: Smoke run luban --version (no-op on POSIX, just verifies link)
-        run: ./build/release/luban --version || echo "luban --version exit non-zero (expected for now)"
+      - name: Run luban-tests
+        # hash.cpp now has OpenSSL backing on POSIX, so test_hash works
+        # (was the blocker for running unit tests on Linux/macOS earlier).
+        run: ./build/release/luban-tests
+
+      - name: Smoke run luban --version
+        run: ./build/release/luban --version
 
   macos-build:
     runs-on: macos-latest
@@ -213,8 +219,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build deps
+        # OpenSSL ships with macOS via Homebrew (`brew install openssl`).
+        # macos-latest runners have it preinstalled, but find_package needs
+        # OPENSSL_ROOT_DIR pointed at the Homebrew prefix on Apple Silicon.
         run: |
-          brew install cmake ninja
+          brew install cmake ninja openssl
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
 
       - name: Verify toolchain
         run: |
@@ -231,5 +241,8 @@ jobs:
       - name: Build luban-tests
         run: cmake --build --preset release --target luban-tests
 
+      - name: Run luban-tests
+        run: ./build/release/luban-tests
+
       - name: Smoke run luban --version
-        run: ./build/release/luban --version || echo "luban --version exit non-zero (expected for now)"
+        run: ./build/release/luban --version

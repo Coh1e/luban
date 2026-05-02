@@ -9,6 +9,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#else
+#include <openssl/evp.h>   // EVP_* — POSIX hash backend (ADR-0006 Phase B)
 #endif
 
 namespace luban::hash {
@@ -155,9 +157,52 @@ std::optional<HashSpec> hash_file(const fs::path& path, Algorithm algo) {
     }
     return HashSpec{algo, to_hex(digest.data(), digest.size())};
 #else
-    (void)path;
-    (void)algo;
-    return std::nullopt;  // POSIX 在 M2 跨平台时再加（OpenSSL / mbedTLS）
+    // POSIX backend: OpenSSL EVP. ADR-0006 Phase B — system libssl is the
+    // pragmatic choice (Ubuntu/Debian/Fedora/Homebrew all ship it; pure-
+    // header alternatives like mbedtls would mean vendoring ~5k lines).
+    const EVP_MD* md = nullptr;
+    switch (algo) {
+        case Algorithm::Sha256: md = EVP_sha256(); break;
+        case Algorithm::Sha512: md = EVP_sha512(); break;
+        case Algorithm::Sha1:   md = EVP_sha1();   break;
+        case Algorithm::Md5:    md = EVP_md5();    break;
+    }
+    if (!md) return std::nullopt;
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) return std::nullopt;
+    if (EVP_DigestInit_ex(ctx, md, nullptr) != 1) {
+        EVP_MD_CTX_free(ctx);
+        return std::nullopt;
+    }
+
+    std::FILE* fp = std::fopen(path.string().c_str(), "rb");
+    if (!fp) {
+        EVP_MD_CTX_free(ctx);
+        return std::nullopt;
+    }
+
+    std::vector<unsigned char> buf(kChunk);
+    while (true) {
+        size_t n = std::fread(buf.data(), 1, buf.size(), fp);
+        if (n == 0) break;
+        if (EVP_DigestUpdate(ctx, buf.data(), n) != 1) {
+            std::fclose(fp);
+            EVP_MD_CTX_free(ctx);
+            return std::nullopt;
+        }
+        if (n < buf.size()) break;
+    }
+    std::fclose(fp);
+
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    if (EVP_DigestFinal_ex(ctx, digest, &digest_len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        return std::nullopt;
+    }
+    EVP_MD_CTX_free(ctx);
+    return HashSpec{algo, to_hex(digest, digest_len)};
 #endif
 }
 
