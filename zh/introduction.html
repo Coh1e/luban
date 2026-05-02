@@ -1,0 +1,282 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>简介 - Luban 中文手册</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="introduction.html" class="active">简介</a></li><li class="chapter-item expanded affix "><li class="part-title">入门</li><li class="chapter-item expanded "><a href="install.html"><strong aria-hidden="true">1.</strong> 安装</a></li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> 快速上手</a></li><li class="chapter-item expanded "><a href="daily-loop.html"><strong aria-hidden="true">3.</strong> 日常使用循环</a></li><li class="chapter-item expanded affix "><li class="part-title">架构</li><li class="chapter-item expanded "><a href="architecture/design.html"><strong aria-hidden="true">4.</strong> 设计总览</a></li><li class="chapter-item expanded affix "><li class="part-title">命令参考</li><li class="chapter-item expanded "><a href="commands/overview.html"><strong aria-hidden="true">5.</strong> 命令清单</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="english.html">英文完整文档站 →</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Luban 中文手册</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban/edit/main/docs/src-zh/introduction.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="luban"><a class="header" href="#luban">Luban</a></h1>
+<blockquote>
+<p>Windows-first 的 C++ 工具链管理器 + cmake/vcpkg 辅助前端。
+单一静态链接二进制，零 UAC，XDG-first 目录布局。</p>
+</blockquote>
+<h2 id="luban-解决什么问题"><a class="header" href="#luban-解决什么问题">luban 解决什么问题</a></h2>
+<p>如果你在 Windows 上配过现代 C++ 工具链，你就知道墙在哪：</p>
+<ul>
+<li>选 LLVM-MinGW 还是 MSVC 还是 mingw-w64</li>
+<li>各自下 cmake / ninja / clangd / vcpkg</li>
+<li>才发现 vcpkg 还要 git</li>
+<li>学 cmake 的怪 variable / find_package / target_link_libraries</li>
+<li>学 vcpkg.json schema、triplets、overlay ports</li>
+<li>学 CMakePresets</li>
+<li>才意识到 clangd 要 <code>compile_commands.json</code> 才有补全</li>
+<li>然后所有这些<strong>都不在 PATH 上</strong>——每个新 shell 还得 source 个 activate</li>
+</ul>
+<p>每件事是半天的 yak-shaving。整套堆起来要好几天，每台新机器要重来一遍。</p>
+<p><strong>luban 把这堆全活变成两条命令：</strong></p>
+<pre><code class="language-bat">luban setup          # 一次性，装 LLVM-MinGW + cmake + ninja + mingit + vcpkg
+luban env --user     # 一次性，把所有工具注入 user PATH（rustup 风格）
+</code></pre>
+<p>之后开任何新终端，cmake / clang++ / ninja / clangd 直接可用。每个项目里：</p>
+<pre><code class="language-bat">luban new app foo    # 脚手架；自动 build；clangd 立即可用
+cd foo
+luban add fmt        # 一行加依赖
+luban build          # cmake 通过 vcpkg manifest mode 自动取 fmt
+</code></pre>
+<p><strong>80% 的场景下，你永远不打开 <code>CMakeLists.txt</code>。</strong></p>
+<h2 id="luban-不是什么"><a class="header" href="#luban-不是什么">luban 不是什么</a></h2>
+<ul>
+<li><strong>不是构建系统。</strong> cmake + ninja 仍然干活；luban 只生成 cmake 胶水。</li>
+<li><strong>不是包管理器。</strong> vcpkg 仍然解析 + 构建 C++ 包；luban 替你编辑 <code>vcpkg.json</code>。</li>
+<li><strong>不是替代品。</strong> 你 <code>git clone</code> 一个 luban 项目到一台没装 luban 的机器
+上，只要 cmake + vcpkg 在，<code>cmake --preset default</code> 仍然能 build——
+luban 生成的 <code>luban.cmake</code> 进 git 跟随项目。</li>
+</ul>
+<h2 id="设计哲学"><a class="header" href="#设计哲学">设计哲学</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>原则</th><th>含义</th></tr></thead><tbody>
+<tr><td><strong>辅助而非主导</strong></td><td>cmake / vcpkg / ninja 仍是项目主角。luban 写一个标准 cmake module（<code>luban.cmake</code>）让用户 <code>include()</code>，删一行就退出。</td></tr>
+<tr><td><strong>不发明新 manifest</strong></td><td>依赖在 <code>vcpkg.json</code>（vcpkg 自己的 schema）里。<code>luban.toml</code> 是<strong>可选的</strong>，只放项目级偏好（warning 等级、sanitizers）。</td></tr>
+<tr><td><strong><code>luban.cmake</code> 进 git</strong></td><td>项目可重现：clone 到没装 luban 的机器仍能 build。</td></tr>
+<tr><td><strong>XDG-first 目录</strong></td><td><code>~/.local/share/luban/</code>（data）、<code>~/.cache/luban/</code>（cache）、<code>~/.local/state/luban/</code>（state）、<code>~/.config/luban/</code>（config）。<code>XDG_*</code> 环境变量优先。</td></tr>
+<tr><td><strong>零 UAC</strong></td><td>所有 luban-managed 文件落在用户可写目录。绝不弹 admin 提示。</td></tr>
+<tr><td><strong>单静态二进制</strong></td><td>一个 <code>luban.exe</code> 包一切。不依赖 Python / MSI / Visual Studio。</td></tr>
+</tbody></table>
+</div>
+<p>完整 8 条架构不变量见 <a href="./architecture/design.html">设计总览</a>。</p>
+<h2 id="接下来"><a class="header" href="#接下来">接下来</a></h2>
+<ul>
+<li><a href="./install.html">安装</a> — 把 <code>luban.exe</code> 装到机器上</li>
+<li><a href="./quickstart.html">快速上手</a> — 5 条命令到 "hello, fmt"</li>
+<li><a href="./daily-loop.html">日常使用循环</a> — 一周 luban 用法长什么样</li>
+<li><a href="./architecture/design.html">设计总览</a> — luban 为什么长这样</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+                            <a rel="next prefetch" href="install.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+                    <a rel="next prefetch" href="install.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

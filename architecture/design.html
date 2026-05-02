@@ -1,0 +1,402 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Design summary (read me first) - The Luban Book</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../introduction.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="../install.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="../daily-loop.html"><strong aria-hidden="true">3.</strong> The Daily Driver Loop</a></li><li class="chapter-item expanded affix "><li class="part-title">Commands</li><li class="chapter-item expanded "><a href="../commands/overview.html"><strong aria-hidden="true">4.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../commands/setup.html"><strong aria-hidden="true">5.</strong> luban setup</a></li><li class="chapter-item expanded "><a href="../commands/env.html"><strong aria-hidden="true">6.</strong> luban env</a></li><li class="chapter-item expanded "><a href="../commands/doctor.html"><strong aria-hidden="true">7.</strong> luban doctor</a></li><li class="chapter-item expanded "><a href="../commands/new.html"><strong aria-hidden="true">8.</strong> luban new</a></li><li class="chapter-item expanded "><a href="../commands/build.html"><strong aria-hidden="true">9.</strong> luban build</a></li><li class="chapter-item expanded "><a href="../commands/add.html"><strong aria-hidden="true">10.</strong> luban add</a></li><li class="chapter-item expanded "><a href="../commands/remove.html"><strong aria-hidden="true">11.</strong> luban remove</a></li><li class="chapter-item expanded "><a href="../commands/sync.html"><strong aria-hidden="true">12.</strong> luban sync</a></li><li class="chapter-item expanded "><a href="../commands/search.html"><strong aria-hidden="true">13.</strong> luban search</a></li><li class="chapter-item expanded "><a href="../commands/target.html"><strong aria-hidden="true">14.</strong> luban target</a></li><li class="chapter-item expanded "><a href="../commands/run.html"><strong aria-hidden="true">15.</strong> luban run</a></li><li class="chapter-item expanded "><a href="../commands/which.html"><strong aria-hidden="true">16.</strong> luban which</a></li><li class="chapter-item expanded "><a href="../commands/describe.html"><strong aria-hidden="true">17.</strong> luban describe</a></li><li class="chapter-item expanded "><a href="../commands/shim.html"><strong aria-hidden="true">18.</strong> luban shim</a></li><li class="chapter-item expanded "><a href="../commands/self.html"><strong aria-hidden="true">19.</strong> luban self</a></li><li class="chapter-item expanded "><a href="../commands/completion.html"><strong aria-hidden="true">20.</strong> luban completion</a></li><li class="chapter-item expanded "><a href="../commands/specs.html"><strong aria-hidden="true">21.</strong> luban specs</a></li><li class="chapter-item expanded "><a href="../commands/doc.html"><strong aria-hidden="true">22.</strong> luban doc</a></li><li class="chapter-item expanded affix "><li class="part-title">Workflows</li><li class="chapter-item expanded "><a href="../workflows/first-run.html"><strong aria-hidden="true">23.</strong> First-time machine setup</a></li><li class="chapter-item expanded "><a href="../workflows/add-vcpkg-dep.html"><strong aria-hidden="true">24.</strong> Add a vcpkg library</a></li><li class="chapter-item expanded "><a href="../workflows/multi-target.html"><strong aria-hidden="true">25.</strong> Multi-target project</a></li><li class="chapter-item expanded "><a href="../workflows/wasm.html"><strong aria-hidden="true">26.</strong> C++ → WebAssembly</a></li><li class="chapter-item expanded "><a href="../workflows/ide-integration.html"><strong aria-hidden="true">27.</strong> IDE integration (Neovim, VS Code)</a></li><li class="chapter-item expanded "><a href="../workflows/reproduce.html"><strong aria-hidden="true">28.</strong> Reproducing a luban project on another machine</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="../reference/paths.html"><strong aria-hidden="true">29.</strong> XDG-first directory layout</a></li><li class="chapter-item expanded "><a href="../reference/luban-toml.html"><strong aria-hidden="true">30.</strong> luban.toml schema</a></li><li class="chapter-item expanded "><a href="../reference/vcpkg-json.html"><strong aria-hidden="true">31.</strong> vcpkg.json & vcpkg-configuration.json</a></li><li class="chapter-item expanded "><a href="../reference/luban-cmake.html"><strong aria-hidden="true">32.</strong> luban.cmake generated module</a></li><li class="chapter-item expanded "><a href="../reference/manifest-overlay.html"><strong aria-hidden="true">33.</strong> Manifest overlay format</a></li><li class="chapter-item expanded "><a href="../reference/env-vars.html"><strong aria-hidden="true">34.</strong> Environment variables</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../architecture/design.html" class="active"><strong aria-hidden="true">35.</strong> Design summary (read me first)</a></li><li class="chapter-item expanded "><a href="../architecture/philosophy.html"><strong aria-hidden="true">36.</strong> Design philosophy</a></li><li class="chapter-item expanded "><a href="../architecture/two-tier-deps.html"><strong aria-hidden="true">37.</strong> Two-tier dependency model</a></li><li class="chapter-item expanded "><a href="../architecture/why-cmake-module.html"><strong aria-hidden="true">38.</strong> Why no IR, why luban.cmake</a></li><li class="chapter-item expanded "><a href="../architecture/roadmap.html"><strong aria-hidden="true">39.</strong> Roadmap</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="../contributing.html">Contributing</a></li><li class="chapter-item expanded affix "><a href="../license.html">License</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Luban Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban/edit/main/docs/src/architecture/design.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="design-summary"><a class="header" href="#design-summary">Design summary</a></h1>
+<p>A single page covering the question: <strong>why does luban look the way it does?</strong></p>
+<p>If you read only one architecture page, read this. The other architecture
+pages (<code>philosophy</code>, <code>two-tier-deps</code>, <code>why-cmake-module</code>, <code>roadmap</code>) zoom
+into individual topics — this is the synthesis.</p>
+<h2 id="what-problem-luban-solves"><a class="header" href="#what-problem-luban-solves">What problem luban solves</a></h2>
+<p>Modern C++ on Windows requires the user to assemble:</p>
+<ol>
+<li>A toolchain (LLVM-MinGW or MSVC + MinGW or mingw-w64)</li>
+<li>cmake — project meta-build</li>
+<li>ninja — actual builder</li>
+<li>clangd — LSP for editors</li>
+<li>vcpkg — package manager</li>
+<li>git — for vcpkg + general use</li>
+<li>Some glue: <code>compile_commands.json</code>, <code>find_package</code>, <code>target_link_libraries</code>,
+triplets, <code>CMakePresets</code>, <code>CMAKE_TOOLCHAIN_FILE</code>, <code>vcpkg-configuration.json</code>
+baseline pinning, <code>target_include_directories(... PUBLIC)</code>, etc.</li>
+</ol>
+<p>Each of these is half a day of yak-shaving. Stack-up usually takes days,
+and resets on every new machine.</p>
+<p>luban's job: turn that into <strong>two one-time commands</strong> plus
+<strong>a tiny per-project loop</strong>:</p>
+<pre><code class="language-bat">luban setup                       :: 〜3 min, ~250 MB toolchains
+luban env --user                  :: register on HKCU PATH (rustup-style)
+:: open fresh shell
+
+luban new app foo
+cd foo
+luban add fmt                     :: edits vcpkg.json + luban.cmake
+luban build                       :: vcpkg auto-fetches fmt during configure
+</code></pre>
+<p>User never opens <code>CMakeLists.txt</code>, never writes a <code>find_package</code>, never
+reads vcpkg manifest mode docs.</p>
+<h2 id="what-luban-is-not"><a class="header" href="#what-luban-is-not">What luban is NOT</a></h2>
+<ul>
+<li><strong>Not a build system.</strong> cmake + ninja still do the building.</li>
+<li><strong>Not a package manager.</strong> vcpkg still resolves and builds C++ packages.</li>
+<li><strong>Not a fork or replacement.</strong> A luban-managed project remains a <em>standard
+cmake project</em> — clone it onto a luban-free machine, <code>cmake --preset default &amp;&amp; cmake --build --preset default</code> works.</li>
+</ul>
+<p>luban is <strong>glue with opinions</strong>: the right glue, glued correctly, with
+opinionated defaults that keep beginners on the rails.</p>
+<h2 id="the-8-architecture-invariants"><a class="header" href="#the-8-architecture-invariants">The 8 architecture invariants</a></h2>
+<p>Locked-in design decisions. Breaking any of them invalidates luban's
+fundamental contract:</p>
+<h3 id="1-cmake-stays-primary"><a class="header" href="#1-cmake-stays-primary">1. cmake stays primary</a></h3>
+<p>luban does not invent a new IR. luban does not invent a new manifest format
+to replace <code>CMakeLists.txt</code>. luban writes a <em>standard cmake module</em>
+(<code>luban.cmake</code>) that user code <code>include()</code>s. One line removed and luban is gone.</p>
+<h3 id="2-lubancmake-is-git-tracked"><a class="header" href="#2-lubancmake-is-git-tracked">2. <code>luban.cmake</code> is git-tracked</a></h3>
+<p>The whole point of "auxiliary" is that the project must remain buildable
+without luban. <code>luban.cmake</code> is a regular cmake module, committed to git,
+always reproducible.</p>
+<h3 id="3-no-new-manifest-format"><a class="header" href="#3-no-new-manifest-format">3. No new manifest format</a></h3>
+<p>Project deps live in <code>vcpkg.json</code> (vcpkg's schema). luban edits it via
+<code>luban add</code>. There is no parallel <code>[deps]</code> section in <code>luban.toml</code> —
+that would create double truth.</p>
+<p><code>luban.toml</code> exists only as <strong>optional project preferences</strong> (warning
+level, sanitizers, default preset, triplet) — the kinds of things that
+don't fit naturally in vcpkg.json.</p>
+<h3 id="4-lubantoml-is-optional"><a class="header" href="#4-lubantoml-is-optional">4. <code>luban.toml</code> is optional</a></h3>
+<p>Many luban projects have no <code>luban.toml</code> at all. It only appears when the
+user has actual preferences. Defaults work for the 80% case.</p>
+<h3 id="5-xdg-first-paths-even-on-windows"><a class="header" href="#5-xdg-first-paths-even-on-windows">5. XDG-first paths, even on Windows</a></h3>
+<p>luban respects <code>XDG_DATA_HOME</code> / <code>XDG_CACHE_HOME</code> / <code>XDG_STATE_HOME</code> /
+<code>XDG_CONFIG_HOME</code> and the <code>LUBAN_PREFIX</code> umbrella variable, <em>before</em>
+falling back to <code>%LOCALAPPDATA%</code> / <code>%APPDATA%</code> defaults.</p>
+<p>This makes container/CI/multi-user setups trivial, and makes a future
+Linux port a no-surprise affair.</p>
+<h3 id="6-zero-uac"><a class="header" href="#6-zero-uac">6. Zero UAC</a></h3>
+<p>Every luban-managed file lives in user-writable directories. luban never
+writes <code>Program Files</code>, never touches <code>HKLM</code>, never spawns elevated
+installers. <code>luban env --user</code> writes only to <code>HKCU</code> (current user).</p>
+<h3 id="7-single-static-linked-binary"><a class="header" href="#7-single-static-linked-binary">7. Single static-linked binary</a></h3>
+<p><code>luban.exe</code> is one file: ~3 MB release / ~32 MB debug, depending on
+miniz/json/toml++ vendored single-headers. No DLLs alongside, no Python,
+no MSI. Drop on a USB stick, copy to a fresh VM, runs.</p>
+<h3 id="8-two-tier-dependency-model"><a class="header" href="#8-two-tier-dependency-model">8. Two-tier dependency model</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Layer</th><th>What</th><th>Where</th><th>Who</th></tr></thead><tbody>
+<tr><td><strong>System</strong></td><td>cmake, ninja, clang, clangd, lld, git, vcpkg</td><td><code>&lt;data&gt;/toolchains/</code></td><td><code>luban setup</code></td></tr>
+<tr><td><strong>Project</strong></td><td>fmt, spdlog, boost, catch2</td><td><code>&lt;project&gt;/vcpkg_installed/&lt;triplet&gt;/</code></td><td><code>luban add</code> (which edits vcpkg.json)</td></tr>
+</tbody></table>
+</div>
+<p>Mixing them is rejected. <code>luban add cmake</code> errors out with a hint about
+<code>luban setup</code>. System tools are version-locked machine-wide; project libs
+live per-project with their own baseline pin.</p>
+<h2 id="why-this-shape-the-alternatives-we-rejected"><a class="header" href="#why-this-shape-the-alternatives-we-rejected">Why this shape (the alternatives we rejected)</a></h2>
+<h3 id="alternative-a-a-luban-dsl--lower-to-cmake"><a class="header" href="#alternative-a-a-luban-dsl--lower-to-cmake">Alternative A: a luban DSL → lower to cmake</a></h3>
+<p>xmake / meson / build2 / premake all chose this path. User writes
+<code>xmake.lua</code> or <code>meson.build</code>, the tool generates the actual build files.</p>
+<p><strong>Why we said no</strong>: C++ has decades of cmake idioms. Custom commands,
+target-specific flags, conditional features — every real project hits cases
+the DSL doesn't cover and falls through to "you have to know cmake anyway."
+At that point the DSL is just an extra thing to learn that doesn't hide
+cmake. Worse, the seam between DSL and cmake is hostile (eject rituals,
+one-way conversions).</p>
+<h3 id="alternative-b-in-place-edit-of-cmakeliststxt-with-marker-blocks"><a class="header" href="#alternative-b-in-place-edit-of-cmakeliststxt-with-marker-blocks">Alternative B: in-place edit of <code>CMakeLists.txt</code> with marker blocks</a></h3>
+<p>Like a code generator inserting <code># &gt;&gt;&gt; BEGIN luban</code> / <code># &lt;&lt;&lt; END luban</code>
+sections. Luban owns those blocks; user owns the rest.</p>
+<p><strong>Why we said no</strong>: edit-in-place is fragile. User's hand-edits inside the
+markers get clobbered. Edits <em>near</em> the markers race with regeneration.
+The boundary is a constant source of confusion.</p>
+<p><code>luban.cmake</code> solves this cleanly: luban owns the <em>file</em>, user <code>include()</code>s
+it, the boundary is a hard line.</p>
+<h3 id="alternative-c-one-unified-manifest-at-the-top"><a class="header" href="#alternative-c-one-unified-manifest-at-the-top">Alternative C: One unified manifest at the top</a></h3>
+<p><code>luban.toml</code> containing everything — deps, scripts, profiles, workspace,
+toolchain pin. Cargo style.</p>
+<p><strong>Why we said no</strong>: vcpkg's <code>vcpkg.json</code> already exists and is the de facto
+C++ manifest. Inventing a parallel <code>[deps]</code> section means we maintain a
+double-truth, with constant drift between the two. Better to let vcpkg
+own that schema and just edit it via <code>luban add</code>.</p>
+<h3 id="alternative-d-a-luban-initexe-bootstrapper"><a class="header" href="#alternative-d-a-luban-initexe-bootstrapper">Alternative D: A luban-init.exe bootstrapper</a></h3>
+<p>rustup-style: a tiny installer that downloads luban + runs setup.</p>
+<p><strong>Why we said no</strong>: luban.exe is <em>already</em> a single self-contained binary.
+Users <code>curl -O luban.exe</code> from GitHub Releases, run it. The bootstrapper
+adds a layer with no real value. Instead, <code>luban self update</code> and
+<code>luban self uninstall</code> round-trip the lifecycle within one binary,
+uv-style.</p>
+<h2 id="trade-offs-we-accept"><a class="header" href="#trade-offs-we-accept">Trade-offs we accept</a></h2>
+<ul>
+<li><strong>Windows-first.</strong> Linux/macOS port is M3+ work; we lose multi-platform
+hygiene short-term but gain rapid iteration on the platform that needs
+the most help (Windows C++ tooling).</li>
+<li><strong>Vendored deps only.</strong> No <code>find_package(zlib)</code>-style consumption of
+system libs. Adds ~10MB to the binary but keeps "one file, runs anywhere"
+promise.</li>
+<li><strong>The <code>.cmake</code>-module model</strong> assumes users will <code>include(luban.cmake)</code>.
+If they don't, none of the auto-find_package magic happens — they fall
+through to plain cmake. This is by design.</li>
+<li><strong>Curated pkg→target mapping.</strong> <code>luban add</code> knows ~224 popular libs by
+name. Unknown ports get <code>find_package(&lt;port&gt;)</code> written but no auto-link;
+user fills target name in. Long tail handled by future scraping of
+vcpkg's <code>usage</code> files.</li>
+</ul>
+<h2 id="operating-model"><a class="header" href="#operating-model">Operating model</a></h2>
+<p>luban operates as <strong>three layers</strong>, each with stable interfaces:</p>
+<pre><code>┌─ user ────────────────────────────────────────────────┐
+│   luban CLI (16 verbs in 4 groups)                    │
+└──────────────────────────────────────────────────────┘
+            │ edits vcpkg.json / luban.toml
+            │ runs cmake / vcpkg
+            ▼
+┌─ luban-managed artifacts ─────────────────────────────┐
+│   luban.cmake     ← luban writes; git-tracked         │
+│   &lt;data&gt;/bin/     ← shim dir; on user PATH            │
+│   &lt;state&gt;/installed.json   ← component registry       │
+└──────────────────────────────────────────────────────┘
+            │ shells out to
+            ▼
+┌─ external tools ──────────────────────────────────────┐
+│   cmake / ninja / clang / vcpkg / git                 │
+│   (luban downloads + manages them, but doesn't        │
+│    invade their config — they remain "off the shelf") │
+└──────────────────────────────────────────────────────┘
+</code></pre>
+<p>The middle layer is what makes luban "auxiliary": it's a thin, stable,
+git-trackable spec that bridges user intent to standard tools. Drop the
+middle layer and you still have working tools at the bottom.</p>
+<h2 id="where-to-read-more"><a class="header" href="#where-to-read-more">Where to read more</a></h2>
+<ul>
+<li><a href="./philosophy.html">Philosophy</a> — the "auxiliary, not authoritative" stance
+expanded</li>
+<li><a href="./two-tier-deps.html">Two-tier dependency model</a> — system vs project deps
+in detail</li>
+<li><a href="./why-cmake-module.html">Why no IR, why luban.cmake</a> — alternative B
+(marker-block in-place edit) rejection rationale</li>
+<li><a href="./roadmap.html">Roadmap</a> — what's done, what's next</li>
+<li><a href="../quickstart.html">Quickstart</a> — the 5-command tour</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../reference/env-vars.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../architecture/philosophy.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../reference/env-vars.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../architecture/philosophy.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

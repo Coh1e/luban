@@ -1,0 +1,21 @@
+var searchData=
+[
+  ['accepts_5franges_0',['accepts_ranges',['../download_8cpp.html#a8606838cca6eaeb31797fc8bce055ae1',1,'download.cpp']]],
+  ['add_1',['add',['../namespaceluban_1_1vcpkg__manifest.html#a95e92512d4f9b2d7051beae6f7236012',1,'luban::vcpkg_manifest']]],
+  ['add_2ecpp_2',['add.cpp',['../add_8cpp.html',1,'']]],
+  ['add_5fto_5fuser_5fpath_3',['add_to_user_path',['../namespaceluban_1_1win__path.html#ad9a823b02dd9b70ba83b63daccd89158',1,'luban::win_path']]],
+  ['alg_4',['alg',['../download_8cpp.html#a39fb0160b695e094433d1d35d8a359f1',1,'download.cpp']]],
+  ['algo_5',['algo',['../structluban_1_1hash_1_1HashSpec.html#a07a95d2f9c8f3ed5b3cd9fb4869b44dd',1,'luban::hash::HashSpec']]],
+  ['algo_5fname_6',['algo_name',['../namespaceluban_1_1hash.html#aafdaf3133c09b1257e73b1dbca94d5ef',1,'luban::hash']]],
+  ['algorithm_7',['Algorithm',['../namespaceluban_1_1hash.html#ae97c9af39df74c627884b579138fbd8b',1,'luban::hash']]],
+  ['alias_8',['alias',['../structluban_1_1registry_1_1AliasHit.html#ae07833b6b211746905b5e9c731eb63d4',1,'luban::registry::AliasHit::alias'],['../structluban_1_1scoop__manifest_1_1BinEntry.html#a609757df95a44908dfc44754600cf455',1,'luban::scoop_manifest::BinEntry::alias']]],
+  ['aliashit_9',['AliasHit',['../structluban_1_1registry_1_1AliasHit.html',1,'luban::registry']]],
+  ['all_5fcomponents_10',['all_components',['../structluban_1_1registry_1_1AliasHit.html#afcc698f65288dc0b6d3e855354d1b18c',1,'luban::registry::AliasHit']]],
+  ['all_5fdirs_11',['all_dirs',['../namespaceluban_1_1paths.html#a8cfe7924c5e07db0f3bc098ba17b3784',1,'luban::paths']]],
+  ['app_5fname_12',['APP_NAME',['../namespaceluban_1_1paths.html#a586e967476995e73f1365443c31ca8b5',1,'luban::paths']]],
+  ['apply_5fto_13',['apply_to',['../namespaceluban_1_1env__snapshot.html#a05a09c780df5bee2a07bec7fcb23408e',1,'luban::env_snapshot']]],
+  ['arch_14',['arch',['../structluban_1_1perception_1_1Host.html#acc58246810de9ab8b0bd4fc370d88614',1,'luban::perception::Host::arch'],['../structluban_1_1msvc__env_1_1Captured.html#a9ec032d37d109bb585d75eab25ac6508',1,'luban::msvc_env::Captured::arch']]],
+  ['architecture_15',['architecture',['../structluban_1_1registry_1_1ComponentRecord.html#a60970375222b027ffa04f4fb4ece5af3',1,'luban::registry::ComponentRecord::architecture'],['../structluban_1_1scoop__manifest_1_1ResolvedManifest.html#a85bc1c48fd5bcd5475365dc660813cd9',1,'luban::scoop_manifest::ResolvedManifest::architecture']]],
+  ['archive_2ecpp_16',['archive.cpp',['../archive_8cpp.html',1,'']]],
+  ['archive_2ehpp_17',['archive.hpp',['../archive_8hpp.html',1,'']]]
+];

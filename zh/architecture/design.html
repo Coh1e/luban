@@ -1,0 +1,375 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN" class="rust" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>设计总览 - Luban 中文手册</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="Windows-first C++ toolchain manager + cmake/vcpkg auxiliary frontend">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "rust";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../introduction.html">简介</a></li><li class="chapter-item expanded affix "><li class="part-title">入门</li><li class="chapter-item expanded "><a href="../install.html"><strong aria-hidden="true">1.</strong> 安装</a></li><li class="chapter-item expanded "><a href="../quickstart.html"><strong aria-hidden="true">2.</strong> 快速上手</a></li><li class="chapter-item expanded "><a href="../daily-loop.html"><strong aria-hidden="true">3.</strong> 日常使用循环</a></li><li class="chapter-item expanded affix "><li class="part-title">架构</li><li class="chapter-item expanded "><a href="../architecture/design.html" class="active"><strong aria-hidden="true">4.</strong> 设计总览</a></li><li class="chapter-item expanded affix "><li class="part-title">命令参考</li><li class="chapter-item expanded "><a href="../commands/overview.html"><strong aria-hidden="true">5.</strong> 命令清单</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><a href="../english.html">英文完整文档站 →</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Luban 中文手册</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Coh1e/luban/edit/main/docs/src-zh/architecture/design.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="设计总览"><a class="header" href="#设计总览">设计总览</a></h1>
+<p>一页讲清：<strong>luban 为什么长这样？</strong></p>
+<p>如果你只读一篇架构文档，读这篇。其他架构文章（<code>philosophy</code> <code>two-tier-deps</code> <code>why-cmake-module</code> <code>roadmap</code>）放大讲单个话题——这篇是综合。</p>
+<h2 id="luban-解决的问题"><a class="header" href="#luban-解决的问题">luban 解决的问题</a></h2>
+<p>Windows 上的现代 C++ 项目要用户<strong>自己拼装</strong>：</p>
+<ol>
+<li>工具链（LLVM-MinGW / MSVC / mingw-w64）</li>
+<li>cmake —— 项目级 meta-build</li>
+<li>ninja —— 实际构建器</li>
+<li>clangd —— 编辑器 LSP</li>
+<li>vcpkg —— 包管理</li>
+<li>git —— vcpkg 要它，自己也用</li>
+<li>一堆胶水：<code>compile_commands.json</code> / <code>find_package</code> / <code>target_link_libraries</code> /
+triplets / <code>CMakePresets</code> / <code>CMAKE_TOOLCHAIN_FILE</code> / <code>vcpkg-configuration.json</code>
+baseline 锁定 / <code>target_include_directories(... PUBLIC)</code> / 等等</li>
+</ol>
+<p>每件事是半天 yak-shaving。整套堆起来要好几天，每台新机器要重来。</p>
+<p>luban 的工作：把这些变成<strong>两条一次性命令</strong> + 一个<strong>很小的项目内循环</strong>：</p>
+<pre><code class="language-bat">luban setup                       :: ~3 min，~250 MB 工具链
+luban env --user                  :: 注 user PATH（rustup 风格）
+:: 开新终端
+
+luban new app foo
+cd foo
+luban add fmt                     :: 编辑 vcpkg.json + luban.cmake
+luban build                       :: vcpkg 在 cmake configure 期间自动拉 fmt
+</code></pre>
+<p>用户<strong>全程不打开</strong> <code>CMakeLists.txt</code>，<strong>不写</strong> <code>find_package</code>，<strong>不读</strong> vcpkg manifest mode 文档。</p>
+<h2 id="luban-不是"><a class="header" href="#luban-不是">luban 不是</a></h2>
+<ul>
+<li><strong>不是构建系统。</strong> cmake + ninja 仍然干构建。</li>
+<li><strong>不是包管理器。</strong> vcpkg 仍然解析 + 构建 C++ 包。</li>
+<li><strong>不是 fork / 替换。</strong> luban-managed 项目仍然是<strong>标准 cmake 项目</strong>——
+clone 到没装 luban 的机器，<code>cmake --preset default &amp;&amp; cmake --build --preset default</code> 照样能 build。</li>
+</ul>
+<p>luban 是<strong>带主见的胶水</strong>：把对的工具用对的方式粘起来，给初学者<strong>默认就走在轨道上</strong>的体验。</p>
+<h2 id="8-条架构不变量"><a class="header" href="#8-条架构不变量">8 条架构不变量</a></h2>
+<p>锁死的设计决策。打破任何一条都让 luban 的根本契约失效：</p>
+<h3 id="1-cmake-永远是项目主角"><a class="header" href="#1-cmake-永远是项目主角">1. cmake 永远是项目主角</a></h3>
+<p>luban <strong>不发明 IR</strong>。luban <strong>不发明新 manifest 格式</strong>取代 <code>CMakeLists.txt</code>。
+luban 写一个<strong>标准 cmake module</strong>（<code>luban.cmake</code>），用户代码 <code>include()</code> 即用。
+删掉一行 luban 就退出。</p>
+<h3 id="2-lubancmake-进-git"><a class="header" href="#2-lubancmake-进-git">2. <code>luban.cmake</code> 进 git</a></h3>
+<p>"辅助"二字的整个意义就是项目得在没有 luban 时仍能 build。<code>luban.cmake</code>
+是普通 cmake module，进 git 跟随项目，永远可重现。</p>
+<h3 id="3-不发明新-manifest"><a class="header" href="#3-不发明新-manifest">3. 不发明新 manifest</a></h3>
+<p>项目依赖在 <code>vcpkg.json</code>（vcpkg 自己的 schema）里。<code>luban add</code> 编辑它。<strong>没有</strong>
+平行的 <code>[deps]</code> 字段在 <code>luban.toml</code> 里——那会造成双真相。</p>
+<p><code>luban.toml</code> 仅作为<strong>可选项目偏好</strong>存在（warning 等级、sanitizers、默认 preset、triplet）——
+那些不适合放 vcpkg.json 的零碎东西。</p>
+<h3 id="4-lubantoml-是可选的"><a class="header" href="#4-lubantoml-是可选的">4. <code>luban.toml</code> 是可选的</a></h3>
+<p>很多 luban 项目根本没有 <code>luban.toml</code>。只在用户<strong>真有</strong>偏好时才出现。默认值 cover 80% 场景。</p>
+<h3 id="5-xdg-first-路径windows-上也是"><a class="header" href="#5-xdg-first-路径windows-上也是">5. XDG-first 路径，Windows 上也是</a></h3>
+<p>luban 尊重 <code>XDG_DATA_HOME</code> / <code>XDG_CACHE_HOME</code> / <code>XDG_STATE_HOME</code> /
+<code>XDG_CONFIG_HOME</code> 和 <code>LUBAN_PREFIX</code> 总开关变量，<strong>优先</strong>于 <code>%LOCALAPPDATA%</code> /
+<code>%APPDATA%</code> fallback。</p>
+<p>让 container / CI / 多用户场景一行配置搞定，Linux port 时无惊喜。</p>
+<h3 id="6-零-uac"><a class="header" href="#6-零-uac">6. 零 UAC</a></h3>
+<p>每个 luban-managed 文件落在用户可写目录。luban 永不写 <code>Program Files</code>、
+永不碰 <code>HKLM</code>、永不弹 admin。<code>luban env --user</code> 只写 <code>HKCU</code>（当前用户）。</p>
+<h3 id="7-单静态链接二进制"><a class="header" href="#7-单静态链接二进制">7. 单静态链接二进制</a></h3>
+<p><code>luban.exe</code> 一个文件：release ~3 MB / debug ~32 MB（含 vendored miniz / json /
+toml++ 单 header 三件）。无配套 DLL、无 Python、无 MSI。U 盘装得下、新 VM 拷过去就跑。</p>
+<h3 id="8-二层依赖模型"><a class="header" href="#8-二层依赖模型">8. 二层依赖模型</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>层</th><th>内容</th><th>落点</th><th>谁管</th></tr></thead><tbody>
+<tr><td><strong>系统层</strong></td><td>cmake / ninja / clang / clangd / lld / git / vcpkg</td><td><code>&lt;data&gt;/toolchains/</code></td><td><code>luban setup</code></td></tr>
+<tr><td><strong>项目层</strong></td><td>fmt / spdlog / boost / catch2</td><td><code>&lt;project&gt;/vcpkg_installed/&lt;triplet&gt;/</code></td><td><code>luban add</code>（编辑 vcpkg.json）</td></tr>
+</tbody></table>
+</div>
+<p>混淆是被拒绝的。<code>luban add cmake</code> 会报错，引导到 <code>luban setup</code>。系统工具
+machine-wide 锁版本，项目库每项目独立 baseline。</p>
+<h2 id="为什么是这个形态拒绝的备选"><a class="header" href="#为什么是这个形态拒绝的备选">为什么是这个形态（拒绝的备选）</a></h2>
+<h3 id="备选-aluban-自己的-dsl--lower-到-cmake"><a class="header" href="#备选-aluban-自己的-dsl--lower-到-cmake">备选 A：luban 自己的 DSL → lower 到 cmake</a></h3>
+<p>xmake / meson / build2 / premake 都走这条路。用户写 <code>xmake.lua</code> 或
+<code>meson.build</code>，工具生成实际 build 文件。</p>
+<p><strong>为什么我们说 no</strong>：C++ 有几十年的 cmake 习惯。custom commands、
+target-specific flags、conditional features——每个真实项目都会撞到 DSL
+没覆盖的边界，<strong>fall through 到"反正还是要懂 cmake"</strong>。这时候 DSL 只是个
+额外要学的东西，没真的把 cmake 藏住。更糟的是 DSL 与 cmake 的接缝<strong>很敌意</strong>
+（eject 仪式、单向转换）。</p>
+<h3 id="备选-b在-cmakeliststxt-里用标记块原地编辑"><a class="header" href="#备选-b在-cmakeliststxt-里用标记块原地编辑">备选 B：在 <code>CMakeLists.txt</code> 里用标记块原地编辑</a></h3>
+<p>像 code generator 插入 <code># &gt;&gt;&gt; BEGIN luban</code> / <code># &lt;&lt;&lt; END luban</code> 段。luban
+拥有那些块；用户拥有其余。</p>
+<p><strong>为什么我们说 no</strong>：原地编辑很脆。用户在标记内手改的东西被覆盖。<strong>靠近</strong>
+标记的改动跟重生成 race。边界处永远是混乱源。</p>
+<p><code>luban.cmake</code> 干净解决这事：luban 拥有<strong>整个文件</strong>，用户 <code>include()</code> 它，
+边界是硬切。</p>
+<h3 id="备选-c顶层一个统一-manifest"><a class="header" href="#备选-c顶层一个统一-manifest">备选 C：顶层一个统一 manifest</a></h3>
+<p><code>luban.toml</code> 包一切——deps / scripts / profiles / workspace / toolchain pin。
+Cargo 风格。</p>
+<p><strong>为什么我们说 no</strong>：vcpkg 的 <code>vcpkg.json</code> 已经存在，是 C++ 事实 manifest。
+发明并行的 <code>[deps]</code> 段意味着维持双真相，两边永远 drift。让 vcpkg 拥有它的
+schema、luban 通过 <code>luban add</code> 编辑它就好。</p>
+<h3 id="备选-dluban-initexe-自举安装器"><a class="header" href="#备选-dluban-initexe-自举安装器">备选 D：luban-init.exe 自举安装器</a></h3>
+<p>rustup 风格：一个小 installer 下载 luban + 跑 setup。</p>
+<p><strong>为什么我们说 no</strong>：luban.exe <strong>本来就是</strong>单文件下载。用户从 GH Releases
+<code>curl -O luban.exe</code> 直接跑就好。bootstrapper 是无价值的中间层。改成
+<code>luban self update</code> 和 <code>luban self uninstall</code> 把生命周期闭环放进同一个二进制，
+uv 风格。</p>
+<h2 id="我们接受的-trade-off"><a class="header" href="#我们接受的-trade-off">我们接受的 trade-off</a></h2>
+<ul>
+<li><strong>Windows-first</strong>。Linux/macOS port 是 M3+ 工作；短期失多平台卫生，长期
+让我们在最需要帮助的平台（Windows C++ tooling）上快速迭代。</li>
+<li><strong>只 vendor 单 header</strong>。不消费系统 <code>find_package(zlib)</code> 类。多 ~10MB 二进制
+换"一个文件、随处能跑"。</li>
+<li><strong><code>.cmake</code> module 模式</strong>假设用户会 <code>include(luban.cmake)</code>。不 include 就没有
+自动 find_package 魔法——掉进普通 cmake。这是设计，不是 bug。</li>
+<li><strong>curated pkg→target 表</strong>。<code>luban add</code> 内置 ~50 流行库的映射。未知 port
+写 <code>find_package(&lt;port&gt;)</code> 但不自动 link，用户自己填 target 名。长尾未来通过
+scrape vcpkg 的 <code>usage</code> 文件解决。</li>
+</ul>
+<h2 id="操作模型"><a class="header" href="#操作模型">操作模型</a></h2>
+<p>luban 作为<strong>三层</strong>运作，每层都有稳定接口：</p>
+<pre><code>┌─ 用户 ─────────────────────────────────────────────────┐
+│   luban CLI（16 verb，分 4 组）                         │
+└──────────────────────────────────────────────────────┘
+            │ 编辑 vcpkg.json / luban.toml
+            │ 调 cmake / vcpkg
+            ▼
+┌─ luban-managed 产物 ──────────────────────────────────┐
+│   luban.cmake     ← luban 写；进 git                   │
+│   &lt;data&gt;/bin/     ← shim 目录；在 user PATH 上          │
+│   &lt;state&gt;/installed.json   ← 组件 registry             │
+└──────────────────────────────────────────────────────┘
+            │ shell out to
+            ▼
+┌─ 外部工具 ────────────────────────────────────────────┐
+│   cmake / ninja / clang / vcpkg / git                 │
+│   （luban 下载 + 管理它们，但不侵入它们的 config       │
+│    —— 它们仍然是"现成"的）                              │
+└──────────────────────────────────────────────────────┘
+</code></pre>
+<p>中间那层是 luban "辅助"性的体现：薄、稳、可 git 跟踪的 spec，桥接用户意图与
+标准工具。<strong>抽掉中间层，下面那层仍然是能用的工具。</strong></p>
+<h2 id="接下来读"><a class="header" href="#接下来读">接下来读</a></h2>
+<ul>
+<li><a href="https://luban.coh1e.com/architecture/philosophy.html">Design philosophy （英文版） →</a></li>
+<li><a href="https://luban.coh1e.com/architecture/two-tier-deps.html">Two-tier dependency model （英文版） →</a></li>
+<li><a href="https://luban.coh1e.com/architecture/why-cmake-module.html">Why no IR, why luban.cmake （英文版） →</a></li>
+<li><a href="https://luban.coh1e.com/architecture/roadmap.html">Roadmap （英文版） →</a></li>
+<li><a href="../quickstart.html">快速上手</a> —— 5 命令一遍走</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../daily-loop.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../commands/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../daily-loop.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../commands/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
