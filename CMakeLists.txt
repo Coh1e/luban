@@ -1,7 +1,17 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 1.0.1
+    VERSION 0.1.0
     LANGUAGES CXX C)
+
+# MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
+# has no msvcp140.dll / vcruntime140.dll dependency. Matches the MinGW
+# branch's `-static -static-libgcc -static-libstdc++` policy and keeps
+# invariant 7 ("luban.exe must be static-linked — fresh Win10 + no PATH
+# is enough to run") true for both compilers. CI ships MSVC builds via
+# windows-latest, so this matters for release artifacts.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 # Single source of truth for the version. cli.cpp / self.cpp / download.cpp
 # all read from the generated header; release flow is "edit VERSION above,

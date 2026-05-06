@@ -1,0 +1,82 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: windows-x64 (MSVC, /MT)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build/release `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DLUBAN_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build/release --parallel
+
+      - name: Verify static linkage (no vcruntime / msvcp dependency)
+        shell: pwsh
+        run: |
+          $deps = & dumpbin /DEPENDENTS build/release/luban.exe
+          Write-Host ($deps -join "`n")
+          $bad = $deps | Select-String -Pattern '(vcruntime|msvcp|api-ms-win-crt)' -CaseSensitive:$false
+          if ($bad) {
+            Write-Error "luban.exe has dynamic CRT deps — invariant 7 broken:`n$($bad -join "`n")"
+            exit 1
+          }
+          Write-Host "OK: luban.exe is statically linked (no vcruntime / msvcp)."
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          build/release/luban.exe --version
+          build/release/luban.exe --help | Select-Object -First 5
+
+      - name: Stage release assets + SHA256SUMS
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build/release/luban.exe       dist/luban.exe
+          Copy-Item build/release/luban-shim.exe  dist/luban-shim.exe
+          Push-Location dist
+          $sums = @()
+          foreach ($f in @('luban.exe', 'luban-shim.exe')) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            $sums += "$h  $f"
+          }
+          $sums -join "`n" | Out-File -Encoding ascii -FilePath SHA256SUMS
+          Get-Content SHA256SUMS
+          Pop-Location
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/luban.exe
+            dist/luban-shim.exe
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
