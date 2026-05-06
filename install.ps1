@@ -15,6 +15,11 @@
 # Override the install dir with $env:LUBAN_INSTALL_DIR or pre-create the
 # target dir; the installer never elevates and never writes outside it.
 # Set $env:LUBAN_FORCE_REINSTALL=1 to force redownload even when SHAs match.
+#
+# Slow VN / CN network? Set $env:LUBAN_GITHUB_MIRROR_PREFIX before running:
+#     $env:LUBAN_GITHUB_MIRROR_PREFIX = 'https://ghfast.top'
+#     irm https://ghfast.top/https://github.com/Coh1e/luban/raw/main/install.ps1 | iex
+# luban itself reads the same env var for its own downloads (bp apply etc.).
 
 #Requires -Version 5
 $ErrorActionPreference = 'Stop'
@@ -36,10 +41,32 @@ if (Test-Path $installDir) {
 
 $forceReinstall = [bool]$env:LUBAN_FORCE_REINSTALL
 
+# ---- mirror prefix (slow VN / CN networks) ---------------------------------
+# Set LUBAN_GITHUB_MIRROR_PREFIX to a reverse-proxy URL prefix to bounce all
+# github.com / api.github.com / *.githubusercontent.com requests through it.
+# Examples that work today: https://ghfast.top, https://gh-proxy.com.
+# Format: <prefix>/<full-original-url>. Empty / unset → direct.
+$mirror = $env:LUBAN_GITHUB_MIRROR_PREFIX
+if ($mirror) { $mirror = $mirror.TrimEnd('/') }
+
+function Mirror-Url($u) {
+    if (-not $mirror) { return $u }
+    $hosts = @(
+        'https://github.com/',
+        'https://api.github.com/',
+        'https://raw.githubusercontent.com/',
+        'https://objects.githubusercontent.com/',
+        'https://codeload.github.com/'
+    )
+    foreach ($h in $hosts) { if ($u.StartsWith($h)) { return "$mirror/$u" } }
+    return $u
+}
+
 # ---- discover latest release -----------------------------------------------
 Write-Host "→ Querying github.com/Coh1e/luban for the latest release..."
+if ($mirror) { Write-Host "  via mirror: $mirror" }
 $release = Invoke-RestMethod `
-    -Uri 'https://api.github.com/repos/Coh1e/luban/releases/latest' `
+    -Uri (Mirror-Url 'https://api.github.com/repos/Coh1e/luban/releases/latest') `
     -Headers @{ 'User-Agent' = 'luban-installer' }
 $tag = $release.tag_name
 Write-Host "  found $tag"
@@ -47,7 +74,7 @@ Write-Host "  found $tag"
 function Get-AssetUrl($name) {
     $a = $release.assets | Where-Object { $_.name -eq $name }
     if (-not $a) { throw "release $tag has no asset '$name'" }
-    return $a.browser_download_url
+    return (Mirror-Url $a.browser_download_url)
 }
 
 # ---- SHA256SUMS -------------------------------------------------------------

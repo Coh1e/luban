@@ -32,6 +32,34 @@ namespace {
 
 constexpr size_t kChunk = 1 << 16;        // 64 KiB
 
+// Apply LUBAN_GITHUB_MIRROR_PREFIX to a github.com URL. The mirror format
+// most CN/SEA reverse proxies use (ghfast.top, gh-proxy.com, etc.) is
+// "<prefix>/<full-original-url>" — i.e., the original URL gets prepended
+// to the mirror's host. Empty / unset env → no-op.
+//
+// We only rewrite a small allowlist of github-owned hosts; everything else
+// (CDN-hosted assets, third-party download URLs, custom mirrors a blueprint
+// already pointed at) passes through verbatim.
+std::string apply_mirror(const std::string& url) {
+    const char* env = std::getenv("LUBAN_GITHUB_MIRROR_PREFIX");
+    if (!env || !*env) return url;
+    static const char* hosts[] = {
+        "https://github.com/",
+        "https://api.github.com/",
+        "https://raw.githubusercontent.com/",
+        "https://objects.githubusercontent.com/",
+        "https://codeload.github.com/",
+    };
+    for (const char* h : hosts) {
+        if (url.rfind(h, 0) == 0) {
+            std::string out = env;
+            while (!out.empty() && out.back() == '/') out.pop_back();
+            return out + "/" + url;
+        }
+    }
+    return url;
+}
+
 // ---- Progress bar (stderr, TTY only) ----
 // Cross-platform: uses cstdio + chrono only. Both Win32 (do_request) and
 // POSIX (libcurl-backed download) populate it via the sink callback.
@@ -700,7 +728,8 @@ std::expected<int64_t, Error> do_request(
 }  // namespace
 
 std::expected<DownloadResult, Error> download(
-    const std::string& url, const fs::path& dest, const DownloadOptions& opts) {
+    const std::string& url_in, const fs::path& dest, const DownloadOptions& opts) {
+    const std::string url = apply_mirror(url_in);
 #ifdef _WIN32
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
@@ -896,7 +925,8 @@ std::expected<DownloadResult, Error> download(
 #endif
 }
 
-std::expected<std::string, Error> fetch_text(const std::string& url, int timeout_seconds) {
+std::expected<std::string, Error> fetch_text(const std::string& url_in, int timeout_seconds) {
+    const std::string url = apply_mirror(url_in);
     // Cross-platform now — do_request has both Win32 and POSIX impls.
     std::string buf;
     auto sink = [&](const unsigned char* data, size_t n, int64_t /*total*/)

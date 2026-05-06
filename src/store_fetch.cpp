@@ -9,6 +9,7 @@
 #include "store.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -89,6 +90,19 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     download::DownloadOptions dlopts;
     dlopts.expected_hash = *hash_spec;
     dlopts.label = opts.label.empty() ? std::string(artifact_id) : opts.label;
+    // Multi-stream Range download. A single TCP connection to GitHub
+    // releases gets per-connection-throttled by the CDN, especially on
+    // slow / high-latency links (CN, VN). Splitting into N parallel
+    // chunks aggregates closer to link ceiling — typically 2-3x for
+    // ~200 MB artifacts. Falls back cleanly to single-stream when the
+    // server can't slice or the file is below threshold (8 MiB).
+    //
+    // Override via LUBAN_PARALLEL_CHUNKS=N (0 = disable) for users who
+    // want to crank further on high-latency links.
+    dlopts.parallel_chunks = 4;
+    if (const char* env = std::getenv("LUBAN_PARALLEL_CHUNKS")) {
+        try { dlopts.parallel_chunks = std::stoi(env); } catch (...) {}
+    }
     auto dl = download::download(std::string(url), archive_path, dlopts);
     if (!dl) {
         return std::unexpected("download failed (url=" + std::string(url) +
