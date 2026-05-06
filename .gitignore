@@ -4,6 +4,7 @@ out/
 .cache/
 .vs/
 *.user
+.tmp-toolchain/
 
 # CMake
 CMakeUserPresets.json

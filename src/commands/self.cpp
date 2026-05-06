@@ -20,6 +20,7 @@
 
 #include "../cli.hpp"
 #include "../download.hpp"
+#include "../generation.hpp"
 #include "../hash.hpp"
 #include "../log.hpp"
 #include "../msvc_env.hpp"
@@ -205,8 +206,67 @@ void log_dir_size(const fs::path& dir) {
 
 void wipe(const fs::path& dir) {
     std::error_code ec;
+    if (!fs::exists(dir, ec)) return;  // idempotent: re-uninstall is silent
     fs::remove_all(dir, ec);
     if (ec) log::warnf("could not fully remove {}: {}", dir.string(), ec.message());
+}
+
+// Sweep luban-owned shim files out of the shared XDG bin home.
+// The XDG bin home (~/.local/bin) is shared with uv / pipx / claude-code,
+// so we MUST NOT remove the directory itself or strip it from PATH on
+// uninstall. Instead, walk every generation's ToolRecord and remove the
+// individual `.cmd` (and twin `.exe`) files we know we wrote. The shim-
+// table at <data>/bin/.shim-table.json (legacy `luban shim` writer) is
+// also walked for the v0.x → v1.0 migration window.
+//
+// Idempotent: missing files / missing state dir / missing shim-table all
+// silently no-op. Returns count of files removed for logging.
+int sweep_owned_shims() {
+    int removed = 0;
+    std::error_code ec;
+
+    // 1. Generation snapshots — authoritative for v1.0+ blueprint shims.
+    for (int id : luban::generation::list_ids()) {
+        auto g = luban::generation::read(id);
+        if (!g) continue;
+        auto try_remove = [&](const std::string& shim_str) {
+            if (shim_str.empty()) return;
+            fs::path p(shim_str);
+            if (fs::remove(p, ec)) ++removed;
+            // .cmd was the recorded path; an .exe twin may live alongside.
+            fs::path twin = p; twin.replace_extension(".exe");
+            if (twin != p && fs::remove(twin, ec)) ++removed;
+        };
+        for (auto& [_name, rec] : g->tools) {
+            try_remove(rec.shim_path);
+            for (auto& s : rec.shim_paths_secondary) try_remove(s);
+        }
+    }
+
+    // 2. Legacy `luban shim` table at <data>/bin/.shim-table.json.
+    fs::path table = paths::bin_dir() / ".shim-table.json";
+    if (fs::exists(table, ec)) {
+        try {
+            std::ifstream in(table, std::ios::binary);
+            json j;
+            in >> j;
+            if (j.is_object()) {
+                for (auto it = j.begin(); it != j.end(); ++it) {
+                    std::string alias = it.key();
+                    for (const char* ext : {".cmd", ".exe"}) {
+                        fs::path p = paths::bin_dir() / (alias + ext);
+                        if (fs::remove(p, ec)) ++removed;
+                        fs::path q = paths::xdg_bin_home() / (alias + ext);
+                        if (fs::remove(q, ec)) ++removed;
+                    }
+                }
+            }
+        } catch (...) {
+            // Malformed table: skip silently. The directory wipe below
+            // will still get whatever's left.
+        }
+    }
+    return removed;
 }
 
 #ifdef _WIN32
@@ -392,7 +452,18 @@ int run_uninstall(const UninstallOptions& opts) {
     }
     log::ok("HKCU env cleaned");
 
-    // 3. Directory wipe. Three modes:
+    // 3. Sweep luban-owned shims out of the shared XDG bin home. Must run
+    //    BEFORE state_dir wipe because we read generation snapshots from
+    //    <state>/generations/ to know which files to delete. We never
+    //    remove ~/.local/bin/ itself (shared with uv/pipx/claude-code).
+    if (!opts.keep_data) {
+        log::step("sweeping luban-owned shims from " +
+                  paths::xdg_bin_home().string());
+        int removed = sweep_owned_shims();
+        log::okf("removed {} shim file(s)", removed);
+    }
+
+    // 4. Directory wipe. Three modes:
     //   - keep_data:        no-op
     //   - keep_toolchains:  selective — only luban-private subdirs of data
     //                       + state + config; cache and toolchains/bin survive
@@ -426,6 +497,11 @@ int run_uninstall(const UninstallOptions& opts) {
         fs::path shim_sibling = self.parent_path() / "luban-shim.exe";
         std::error_code ec;
         if (fs::exists(shim_sibling, ec)) targets.push_back(shim_sibling);
+        // Also sweep .old leftovers from prior self-updates.
+        for (const char* sib : {"luban.exe.old", "luban-shim.exe.old"}) {
+            fs::path p = self.parent_path() / sib;
+            if (fs::exists(p, ec)) targets.push_back(p);
+        }
         log::step("scheduling self-delete (~1.5s)");
         spawn_self_delete_batch(targets);
         log::ok("done");
