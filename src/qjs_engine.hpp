@@ -2,7 +2,7 @@
 // sandbox + API surface installed at construction time.
 //
 // Mirrors `lua_engine` in shape and intent. JavaScript blueprints (`*.js`)
-// and program renderers (`templates/programs/<name>.js`) live here. Per
+// and config renderers (`templates/configs/<name>.js`) live here. Per
 // docs/DESIGN.md §10.3, JS is a **second-class** scripting layer in luban:
 // Lua's "table = DSL" syntax is the preferred form for blueprints, and all
 // v1.0 built-in renderers are written in Lua. JS is provided for users who

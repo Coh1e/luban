@@ -1,5 +1,5 @@
-// `program_renderer` — translate a [programs.X] config block from a
-// blueprint into the bytes the actual tool wants to read on disk.
+// `config_renderer` — translate a [config.X] block from a blueprint
+// into the bytes the actual tool wants to read on disk.
 //
 // Per DESIGN.md §11.3, this is the home-manager-equivalent layer: each
 // tool we want to support has a tiny Lua module declaring two functions:
@@ -14,8 +14,8 @@
 // content to that path via file_deploy.
 //
 // Module lookup order (first hit wins):
-//   1. <config>/luban/programs/<tool>.lua  -- user override
-//   2. embedded_programs::<tool>_lua       -- builtin shipped with luban.exe
+//   1. <config>/luban/configs/<tool>.lua  -- user override
+//   2. embedded_configs::<tool>_lua       -- builtin shipped with luban.exe
 //
 // Both paths run in a fresh sandboxed lua_engine::Engine, so user
 // overrides get the same restricted environment + luban.* API as
@@ -30,12 +30,12 @@
 
 #include "json.hpp"
 
-namespace luban::program_renderer {
+namespace luban::config_renderer {
 
 /// Context handed to renderers as the second argument. Contains the
 /// per-apply environment: where home is, what the host OS is, the name
-/// of the blueprint that owns this [programs.X] block. Renderers
-/// compose target paths from these.
+/// of the blueprint that owns this [config.X] block. Renderers compose
+/// target paths from these.
 struct Context {
     std::filesystem::path home;            ///< paths::home() for ~ expansion.
     std::filesystem::path xdg_config;      ///< Typically ~/.config on POSIX,
@@ -50,7 +50,7 @@ struct RenderResult {
     std::string content;                   ///< Bytes to write verbatim.
 };
 
-/// Render a [programs.X] block. `tool_name` selects the renderer module
+/// Render a [config.X] block. `tool_name` selects the renderer module
 /// (lookup order above). `cfg` is the JSON-shaped config block from the
 /// blueprint. Returns RenderResult on success, error string on failure
 /// (Lua syntax / runtime error / module shape violation / unknown tool).
@@ -65,4 +65,4 @@ struct RenderResult {
     std::string_view lua_source, std::string_view chunk_name,
     const nlohmann::json& cfg, const Context& ctx);
 
-}  // namespace luban::program_renderer
+}  // namespace luban::config_renderer

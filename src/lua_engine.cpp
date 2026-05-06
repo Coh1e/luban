@@ -9,7 +9,7 @@
 // API surface is intentionally tiny in this v1 scaffold: just enough to
 // prove the embed works end-to-end (luban.version + luban.platform.os/arch
 // + luban.env.get). Later weeks add luban.shell.which, luban.fs.read, etc.
-// as blueprint_lua / program_renderer demand them.
+// as blueprint_lua / config_renderer demand them.
 
 #include "lua_engine.hpp"
 

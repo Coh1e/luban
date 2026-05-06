@@ -8,18 +8,24 @@
 //   - <name>.js    → executed by blueprint_qjs.cpp (QuickJS, second-class)
 //
 // All three paths converge on a `BlueprintSpec`. Downstream consumers
-// (source_resolver, store, file_deploy, program_renderer, generation)
+// (source_resolver, store, file_deploy, config_renderer, generation)
 // only see this struct — they don't care which surface produced it.
 //
 // Schema philosophy: structs mirror the TOML schema 1:1 to keep parsers
 // dumb. Validation happens in the parser, not at struct-construction
 // time. Once a BlueprintSpec exists, it's already validated.
 //
-// All "tool config" (the body of `[programs.X]` blocks) is held as
+// All "tool config" (the body of `[config.X]` blocks) is held as
 // nlohmann::json — that's the most flexible way to keep arbitrarily-nested
 // structured data without bloating this header with another bespoke
 // representation. The Lua/JS renderers consume json directly; the TOML
 // parser converts toml::table → json at the boundary.
+//
+// v0.2.0 (议题 P, 2026-05-06): TOML keys are singular: `[tool.X]`,
+// `[config.X]`, `[file."path"]`. Internal C++ struct field names mirror
+// (BlueprintSpec.tools / .configs / .files). Old plural TOML keys
+// (`[tools.X]` / `[programs.X]` / `[files."path"]`) are no longer
+// recognised — schema breaking change.
 
 #pragma once
 
@@ -33,7 +39,7 @@
 namespace luban::blueprint {
 
 /// One concrete platform variant of a tool's download. Either harvested
-/// from `[[tools.X.platform]]` inline blocks (manual mode) or written
+/// from `[[tool.X.platform]]` inline blocks (manual mode) or written
 /// here by source_resolver after talking to GitHub (auto mode).
 ///
 /// `target` is a vcpkg-style triplet stem we use to identify which
@@ -115,19 +121,26 @@ struct ToolSpec {
     std::optional<std::string> shim_dir;
 };
 
-/// One `[programs.X]` block: tool name + arbitrary nested config that
+/// One `[config.X]` block: tool name + arbitrary nested config that
 /// the tool's renderer will translate to the tool's native config format.
 ///
 /// Held as JSON because the schema is per-tool — git wants `userName` and
 /// `aliases`; bat wants `theme` and `style`; etc. Renderers (Lua modules
-/// in templates/programs/<name>.lua) consume this via JS_ParseJSON / Lua
+/// in templates/configs/<name>.lua) consume this via JS_ParseJSON / Lua
 /// table-from-json helpers.
-struct ProgramSpec {
+///
+/// `for_tool` (议题 P) lets a config block target a tool whose name
+/// differs from the config's own (rare — e.g. you might want
+/// `[config.zsh-theme] for_tool = "starship"` to dispatch to the
+/// starship renderer with starship-specific cfg keys). When unset, the
+/// renderer named by `name` is used.
+struct ConfigSpec {
     std::string name;
     nlohmann::json config;
+    std::optional<std::string> for_tool;  ///< Renderer/tool name override.
 };
 
-/// One `[files."<path>"]` block: a literal file the user wants deployed
+/// One `[file."<path>"]` block: a literal file the user wants deployed
 /// somewhere outside luban-owned space (typically under their HOME, in
 /// XDG-standard locations).
 enum class FileMode {
@@ -135,6 +148,14 @@ enum class FileMode {
     DropIn,   ///< Write to a drop-in subdir alongside the canonical file
               ///< (e.g., ~/.gitconfig.d/<bp>.gitconfig); user's main config
               ///< file [include]s it. luban never touches the canonical file.
+    Merge,    ///< JSON Merge Patch (RFC 7396) — read existing JSON file,
+              ///< deep-merge the patch (`content` parsed as JSON), atomic
+              ///< write back. Use case: WT settings.json themes section.
+    Append,   ///< Append `content` inside a luban marker block
+              ///< (`# >>> luban:<bp> >>>` ... `# <<< luban:<bp> <<<`) at
+              ///< end of target file. Re-applies replace the marker
+              ///< block in place, idempotent. Use case: profile.ps1
+              ///< multi-bp coordination.
 };
 
 struct FileSpec {
@@ -163,7 +184,7 @@ struct BlueprintSpec {
     std::string name;
     std::string description;
     std::vector<ToolSpec> tools;
-    std::vector<ProgramSpec> programs;
+    std::vector<ConfigSpec> configs;
     std::vector<FileSpec> files;
     MetaSpec meta;
 
@@ -174,9 +195,9 @@ struct BlueprintSpec {
         }
         return nullptr;
     }
-    [[nodiscard]] const ProgramSpec* find_program(const std::string& tool_name) const noexcept {
-        for (auto& p : programs) {
-            if (p.name == tool_name) return &p;
+    [[nodiscard]] const ConfigSpec* find_config(const std::string& cfg_name) const noexcept {
+        for (auto& c : configs) {
+            if (c.name == cfg_name) return &c;
         }
         return nullptr;
     }

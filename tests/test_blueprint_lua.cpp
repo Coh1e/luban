@@ -50,7 +50,7 @@ TEST_CASE("[tools] with source shorthand parses") {
     auto r = bpl::parse_string(R"(
 return {
   name = "x",
-  tools = {
+  tool = {
     ripgrep = { source = "github:BurntSushi/ripgrep", version = "14.0.3" },
   },
 }
@@ -68,7 +68,7 @@ TEST_CASE("[tools] with inline platforms array parses") {
     auto r = bpl::parse_string(R"(
 return {
   name = "x",
-  tools = {
+  tool = {
     fd = {
       version = "10.2.0",
       platforms = {
@@ -93,7 +93,7 @@ TEST_CASE("tool with neither source nor platforms is an error") {
     auto r = bpl::parse_string(R"(
 return {
   name = "x",
-  tools = { broken = { version = "1.0" } },
+  tool = { broken = { version = "1.0" } },
 }
 )");
     CHECK_FALSE(r.has_value());
@@ -104,7 +104,7 @@ TEST_CASE("[programs] becomes a JSON config blob") {
     auto r = bpl::parse_string(R"(
 return {
   name = "x",
-  programs = {
+  config = {
     git = {
       userName = "Coh1e",
       aliases = { co = "checkout", br = "branch" },
@@ -117,14 +117,14 @@ return {
 }
 )");
     REQUIRE(r.has_value());
-    REQUIRE(r->programs.size() == 2);
+    REQUIRE(r->configs.size() == 2);
 
-    auto* git = r->find_program("git");
+    auto* git = r->find_config("git");
     REQUIRE(git);
     CHECK(git->config["userName"].get<std::string>() == "Coh1e");
     CHECK(git->config["aliases"]["co"].get<std::string>() == "checkout");
 
-    auto* bat = r->find_program("bat");
+    auto* bat = r->find_config("bat");
     REQUIRE(bat);
     CHECK(bat->config["theme"].get<std::string>() == "ansi");
     REQUIRE(bat->config["style"].is_array());
@@ -136,7 +136,7 @@ TEST_CASE("[files] replace + drop-in modes") {
     auto r = bpl::parse_string(R"(
 return {
   name = "x",
-  files = {
+  file = {
     ["~/.config/some-tool/config"] = {
       content = "key=value\n",
       mode = "replace",

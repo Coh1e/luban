@@ -1,4 +1,4 @@
-// Unit + integration tests for src/program_renderer.cpp and the 5
+// Unit + integration tests for src/config_renderer.cpp and the 5
 // built-in Lua renderers.
 //
 // These exercise:
@@ -17,10 +17,10 @@
 #include "doctest.h"
 #include "json.hpp"
 #include "paths.hpp"
-#include "program_renderer.hpp"
+#include "config_renderer.hpp"
 
 using nlohmann::json;
-namespace pr = luban::program_renderer;
+namespace pr = luban::config_renderer;
 
 namespace {
 

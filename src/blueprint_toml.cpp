@@ -3,7 +3,7 @@
 // We use the toml++ library that's already vendored at third_party/toml.hpp
 // (the same parser luban_toml.cpp uses for project-level luban.toml).
 // Walking a toml::table to extract our schema is straightforward; the only
-// non-obvious bit is converting nested `[programs.X]` tables into
+// non-obvious bit is converting nested `[config.X]` tables into
 // nlohmann::json so renderers downstream can consume them uniformly.
 
 #include "blueprint_toml.hpp"
@@ -97,7 +97,7 @@ struct ParseCtx {
 };
 
 void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
-    if (!tools_tbl) return;  // [tools] section is optional
+    if (!tools_tbl) return;  // [tool] section is optional
     for (auto&& [name_key, tool_node] : *tools_tbl) {
         std::string tool_name(name_key.str());
         bp::ToolSpec tool;
@@ -105,7 +105,7 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
 
         auto* tool_tbl = tool_node.as_table();
         if (!tool_tbl) {
-            ctx.err("[tools." + tool_name + "] must be a table");
+            ctx.err("[tool." + tool_name + "] must be a table");
             continue;
         }
 
@@ -125,25 +125,25 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
                 if (auto* item_s = item.as_string()) {
                     tool.shims.push_back(std::string(item_s->get()));
                 } else {
-                    ctx.err("[tools." + tool_name +
+                    ctx.err("[tool." + tool_name +
                             "] shims entries must be strings");
                 }
             }
         } else if (auto* s = shims_view.as_string()) {
             tool.shims.push_back(std::string(s->get()));
         } else if (shims_view) {
-            ctx.err("[tools." + tool_name +
+            ctx.err("[tool." + tool_name +
                     "] shims must be a string or array of strings");
         }
 
         if (auto v = (*tool_tbl)["shim_dir"].value<std::string>()) tool.shim_dir = *v;
 
-        // [[tools.X.platform]] inline blocks (manual mode).
+        // [[tool.X.platform]] inline blocks (manual mode).
         if (auto* platforms = (*tool_tbl)["platform"].as_array()) {
             for (auto&& p_node : *platforms) {
                 auto* p_tbl = p_node.as_table();
                 if (!p_tbl) {
-                    ctx.err("[[tools." + tool_name + ".platform]] entry must be a table");
+                    ctx.err("[[tool." + tool_name + ".platform]] entry must be a table");
                     continue;
                 }
                 bp::PlatformSpec ps;
@@ -153,13 +153,13 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
                 if (auto v = (*p_tbl)["bin"].value<std::string>())    ps.bin    = *v;
 
                 if (ps.target.empty()) {
-                    ctx.err("[[tools." + tool_name + ".platform]] missing required `target`");
+                    ctx.err("[[tool." + tool_name + ".platform]] missing required `target`");
                 }
                 if (ps.url.empty()) {
-                    ctx.err("[[tools." + tool_name + ".platform]] missing required `url`");
+                    ctx.err("[[tool." + tool_name + ".platform]] missing required `url`");
                 }
                 if (ps.sha256.empty()) {
-                    ctx.err("[[tools." + tool_name + ".platform]] missing required `sha256`");
+                    ctx.err("[[tool." + tool_name + ".platform]] missing required `sha256`");
                 }
                 tool.platforms.push_back(std::move(ps));
             }
@@ -167,26 +167,34 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
 
         // Either source must be set OR at least one platform must be present.
         if (!tool.source.has_value() && tool.platforms.empty()) {
-            ctx.err("[tools." + tool_name + "] needs either `source` or [[platform]] inline");
+            ctx.err("[tool." + tool_name + "] needs either `source` or [[platform]] inline");
         }
 
         ctx.spec.tools.push_back(std::move(tool));
     }
 }
 
-void parse_programs(const ::toml::table* programs_tbl, ParseCtx& ctx) {
-    if (!programs_tbl) return;
-    for (auto&& [name_key, prog_node] : *programs_tbl) {
-        std::string prog_name(name_key.str());
-        auto* prog_tbl = prog_node.as_table();
-        if (!prog_tbl) {
-            ctx.err("[programs." + prog_name + "] must be a table");
+void parse_configs(const ::toml::table* configs_tbl, ParseCtx& ctx) {
+    if (!configs_tbl) return;
+    for (auto&& [name_key, cfg_node] : *configs_tbl) {
+        std::string cfg_name(name_key.str());
+        auto* cfg_tbl = cfg_node.as_table();
+        if (!cfg_tbl) {
+            ctx.err("[config." + cfg_name + "] must be a table");
             continue;
         }
-        bp::ProgramSpec prog;
-        prog.name = prog_name;
-        prog.config = table_to_json(*prog_tbl);
-        ctx.spec.programs.push_back(std::move(prog));
+        bp::ConfigSpec cfg;
+        cfg.name = cfg_name;
+        // Pull out for_tool BEFORE table_to_json so it doesn't pollute
+        // the JSON cfg passed to renderers (it's a parser-level field,
+        // not part of the tool's own config schema).
+        if (auto v = (*cfg_tbl)["for_tool"].value<std::string>()) {
+            cfg.for_tool = *v;
+        }
+        ::toml::table cfg_copy = *cfg_tbl;  // shallow copy is fine for prune
+        cfg_copy.erase("for_tool");
+        cfg.config = table_to_json(cfg_copy);
+        ctx.spec.configs.push_back(std::move(cfg));
     }
 }
 
@@ -196,7 +204,7 @@ void parse_files(const ::toml::table* files_tbl, ParseCtx& ctx) {
         std::string target_path(path_key.str());
         auto* file_tbl = file_node.as_table();
         if (!file_tbl) {
-            ctx.err("[files.\"" + target_path + "\"] must be a table");
+            ctx.err("[file.\"" + target_path + "\"] must be a table");
             continue;
         }
         bp::FileSpec f;
@@ -211,13 +219,17 @@ void parse_files(const ::toml::table* files_tbl, ParseCtx& ctx) {
             f.mode = bp::FileMode::Replace;
         } else if (mode == "drop-in" || mode == "dropin") {
             f.mode = bp::FileMode::DropIn;
+        } else if (mode == "merge") {
+            f.mode = bp::FileMode::Merge;
+        } else if (mode == "append") {
+            f.mode = bp::FileMode::Append;
         } else {
-            ctx.err("[files.\"" + target_path + "\"] unknown mode `" + mode +
-                    "` (expected: replace | drop-in)");
+            ctx.err("[file.\"" + target_path + "\"] unknown mode `" + mode +
+                    "` (expected: replace | drop-in | merge | append)");
             continue;
         }
         if (f.content.empty()) {
-            ctx.err("[files.\"" + target_path + "\"] missing required `content`");
+            ctx.err("[file.\"" + target_path + "\"] missing required `content`");
             continue;
         }
         ctx.spec.files.push_back(std::move(f));
@@ -251,9 +263,9 @@ std::expected<bp::BlueprintSpec, std::string> parse_table(const ::toml::table& t
 
     if (auto v = tbl["description"].value<std::string>()) ctx.spec.description = *v;
 
-    parse_tools(tbl["tools"].as_table(), ctx);
-    parse_programs(tbl["programs"].as_table(), ctx);
-    parse_files(tbl["files"].as_table(), ctx);
+    parse_tools(tbl["tool"].as_table(), ctx);
+    parse_configs(tbl["config"].as_table(), ctx);
+    parse_files(tbl["file"].as_table(), ctx);
     parse_meta(tbl["meta"].as_table(), ctx);
 
     if (!ctx.ok()) return std::unexpected(ctx.joined_errors());

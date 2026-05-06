@@ -35,7 +35,7 @@ using nlohmann::json;
 // ---- Lua table → nlohmann::json conversion -----------------------------
 //
 // Walks a Lua table at stack index `idx` and emits it as JSON. Used for
-// the body of `programs.X` blocks. Same conversion philosophy as TOML's
+// the body of `config.X` blocks. Same conversion philosophy as TOML's
 // node_to_json: anything we can't represent natively becomes a string
 // via tostring.
 
@@ -159,7 +159,7 @@ std::optional<std::string> opt_str_field(lua_State* L, int idx, const char* fiel
 }
 
 void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "tools");
+    lua_getfield(L, blueprint_idx, "tool");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
         return;
@@ -219,31 +219,37 @@ void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
     lua_pop(L, 1);  // pop tools table
 }
 
-void parse_programs(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "programs");
+void parse_configs(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
+    lua_getfield(L, blueprint_idx, "config");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
         return;
     }
-    int progs_idx = lua_gettop(L);
+    int cfgs_idx = lua_gettop(L);
 
     lua_pushnil(L);
-    while (lua_next(L, progs_idx) != 0) {
+    while (lua_next(L, cfgs_idx) != 0) {
         if (lua_type(L, -2) != LUA_TSTRING || !lua_istable(L, -1)) {
             lua_pop(L, 1);
             continue;
         }
-        bp::ProgramSpec prog;
-        prog.name = lua_tostring(L, -2);
-        prog.config = table_to_json(L, lua_gettop(L));
-        ctx.spec.programs.push_back(std::move(prog));
+        bp::ConfigSpec cfg;
+        cfg.name = lua_tostring(L, -2);
+        int cfg_idx = lua_gettop(L);
+        if (auto v = opt_str_field(L, cfg_idx, "for_tool")) cfg.for_tool = *v;
+        // Build JSON from the cfg table — for_tool is a parser-level
+        // field, so it leaks into the JSON view too. That's harmless
+        // (renderers ignore unknown fields), unlike TOML where we
+        // stripped it. Symmetry with TOML side optional; future cleanup.
+        cfg.config = table_to_json(L, cfg_idx);
+        ctx.spec.configs.push_back(std::move(cfg));
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
 }
 
 void parse_files(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "files");
+    lua_getfield(L, blueprint_idx, "file");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
         return;
@@ -268,13 +274,18 @@ void parse_files(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
             f.mode = bp::FileMode::Replace;
         } else if (mode == "drop-in" || mode == "dropin") {
             f.mode = bp::FileMode::DropIn;
+        } else if (mode == "merge") {
+            f.mode = bp::FileMode::Merge;
+        } else if (mode == "append") {
+            f.mode = bp::FileMode::Append;
         } else {
-            ctx.err("files[\"" + target + "\"] unknown mode `" + mode + "`");
+            ctx.err("file[\"" + target + "\"] unknown mode `" + mode +
+                    "` (expected: replace | drop-in | merge | append)");
             lua_pop(L, 1);
             continue;
         }
         if (f.content.empty()) {
-            ctx.err("files[\"" + target + "\"] missing required `content`");
+            ctx.err("file[\"" + target + "\"] missing required `content`");
             lua_pop(L, 1);
             continue;
         }
@@ -336,7 +347,7 @@ std::expected<bp::BlueprintSpec, std::string> walk_top(lua_State* L) {
     lua_pop(L, 1);
 
     parse_tools(L, idx, ctx);
-    parse_programs(L, idx, ctx);
+    parse_configs(L, idx, ctx);
     parse_files(L, idx, ctx);
     parse_meta(L, idx, ctx);
 

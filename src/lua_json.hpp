@@ -2,9 +2,9 @@
 //
 // Used in two places:
 //   - `blueprint_lua.cpp` — pop the user's `return { ... }` table and
-//     turn its [programs.X] sub-tables into nlohmann::json so renderers
+//     turn its [config.X] sub-tables into nlohmann::json so renderers
 //     can consume them uniformly.
-//   - `program_renderer.cpp` — push a json cfg + ctx onto the Lua stack
+//   - `config_renderer.cpp` — push a json cfg + ctx onto the Lua stack
 //     so a Lua renderer module's M.render(cfg, ctx) can read structured
 //     data without a custom protocol.
 //

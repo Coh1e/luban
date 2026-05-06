@@ -3,7 +3,7 @@
 //
 // Why Lua: blueprints (`*.lua`) can express conditionals, composition, and
 // platform branching that pure TOML can't (see plan §1: "TOML primary +
-// Lua optional"). Per-tool program renderers (`templates/programs/<name>.lua`)
+// Lua optional"). Per-tool config renderers (`templates/configs/<name>.lua`)
 // also live here — same engine, different entry point.
 //
 // Sandbox philosophy: blueprints are user-authored config, not arbitrary

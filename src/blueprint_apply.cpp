@@ -16,7 +16,7 @@
 //
 // 2. Program renderers always deploy in drop-in mode. The renderer
 //    decides the target_path; we treat its output like the user wrote
-//    a [files."<path>"] entry with mode = drop-in. Down the road
+//    a [file."<path>"] entry with mode = drop-in. Down the road
 //    renderers might want to declare mode themselves, but for v1 every
 //    built-in is drop-in.
 //
@@ -40,7 +40,7 @@
 #include "paths.hpp"
 #include "platform.hpp"
 #include "proc.hpp"
-#include "program_renderer.hpp"
+#include "config_renderer.hpp"
 #include "source_resolver.hpp"
 #include "store.hpp"
 #include "xdg_shim.hpp"
@@ -377,21 +377,24 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         ++result.tools_fetched;
     }
 
-    // ---- Programs ------------------------------------------------------
-    luban::program_renderer::Context ctx;
+    // ---- Configs ------------------------------------------------------
+    luban::config_renderer::Context ctx;
     ctx.home = paths::home();
     ctx.xdg_config = paths::config_dir();
     ctx.blueprint_name = spec.name;
     ctx.platform = std::string(luban::platform::host_os());
 
-    const size_t total_progs = spec.programs.size();
-    size_t prog_idx = 0;
-    for (auto& prog : spec.programs) {
-        ++prog_idx;
-        log::stepf("[{}/{}] config: {}", prog_idx, total_progs, prog.name);
-        auto rendered = luban::program_renderer::render(prog.name, prog.config, ctx);
+    const size_t total_cfgs = spec.configs.size();
+    size_t cfg_idx = 0;
+    for (auto& cfg : spec.configs) {
+        ++cfg_idx;
+        // for_tool overrides which renderer handles this cfg block. Falls
+        // back to cfg.name (the conventional same-name binding) when unset.
+        const std::string& renderer_name = cfg.for_tool.value_or(cfg.name);
+        log::stepf("[{}/{}] config: {}", cfg_idx, total_cfgs, cfg.name);
+        auto rendered = luban::config_renderer::render(renderer_name, cfg.config, ctx);
         if (!rendered) {
-            return std::unexpected("render " + prog.name + ": " + rendered.error());
+            return std::unexpected("render " + cfg.name + ": " + rendered.error());
         }
         if (opts.dry_run) {
             log::infof("  (dry-run) would render -> {}",
@@ -407,7 +410,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         fs_spec.mode = bp::FileMode::DropIn;  // renderers always drop-in
         auto deployed = luban::file_deploy::deploy(fs_spec, next_id);
         if (!deployed) {
-            return std::unexpected("deploy " + prog.name + ": " + deployed.error());
+            return std::unexpected("deploy " + cfg.name + ": " + deployed.error());
         }
         log::infof("  rendered -> {}", deployed->target_path.string());
 

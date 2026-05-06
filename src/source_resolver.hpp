@@ -4,7 +4,7 @@
 //
 // Two modes (DESIGN.md §9.5):
 //
-//   1. **Inline** (manual): the user has filled in `[[tools.X.platform]]`
+//   1. **Inline** (manual): the user has filled in `[[tool.X.platform]]`
 //      blocks themselves. resolve() copies them into the LockedTool
 //      verbatim. No network hit.
 //

@@ -9,7 +9,7 @@
 //   - store::fetch → on-disk artifact (S4)
 //   - external_skip → skip when scoop/etc. already provides (S4)
 //   - file_deploy → write [files] entries (S4)
-//   - program_renderer → render [programs.X] then file_deploy (S4+S5)
+//   - config_renderer → render [config.X] then file_deploy (S4+S5)
 //   - generation::write → snapshot what we did (S6)
 //
 // What apply() does NOT do:
@@ -51,8 +51,8 @@ struct ApplyResult {
 ///        - if external_skip says the tool is on PATH → record external
 ///        - else find the right platform in `lock`, fetch via store,
 ///          write a shim under ~/.local/bin/<bin>
-///   2. for each [programs.X] in `spec`:
-///        - render via program_renderer
+///   2. for each [config.X] in `spec`:
+///        - render via config_renderer
 ///        - deploy via file_deploy as drop-in
 ///   3. for each [files] in `spec`:
 ///        - deploy via file_deploy with the user-specified mode

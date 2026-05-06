@@ -19,7 +19,7 @@ description = "tiny test"
     CHECK(r->description == "tiny test");
     CHECK(r->schema == 1);
     CHECK(r->tools.empty());
-    CHECK(r->programs.empty());
+    CHECK(r->configs.empty());
     CHECK(r->files.empty());
 }
 
@@ -35,11 +35,11 @@ TEST_CASE("invalid TOML syntax surfaces as TOML syntax error") {
     CHECK(r.error().find("TOML syntax") != std::string::npos);
 }
 
-TEST_CASE("[tools.X] with `source` shorthand parses") {
+TEST_CASE("[tool.X] with `source` shorthand parses") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.ripgrep]
+[tool.ripgrep]
 source = "github:BurntSushi/ripgrep"
 version = "14.0.3"
 )");
@@ -52,18 +52,18 @@ version = "14.0.3"
     CHECK(t.platforms.empty());
 }
 
-TEST_CASE("[tools.X] with inline [[platform]] parses") {
+TEST_CASE("[tool.X] with inline [[platform]] parses") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.fd]
+[tool.fd]
 version = "10.2.0"
-[[tools.fd.platform]]
+[[tool.fd.platform]]
 target = "windows-x64"
 url = "https://example.com/fd-win.zip"
 sha256 = "deadbeef"
 bin = "fd.exe"
-[[tools.fd.platform]]
+[[tool.fd.platform]]
 target = "linux-x64"
 url = "https://example.com/fd-linux.tar.gz"
 sha256 = "cafef00d"
@@ -82,11 +82,11 @@ bin = "fd"
     CHECK(t.platforms[1].target == "linux-x64");
 }
 
-TEST_CASE("[tools.X] post_install field parses (script-relative-path)") {
+TEST_CASE("[tool.X] post_install field parses (script-relative-path)") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.vcpkg]
+[tool.vcpkg]
 source = "github:microsoft/vcpkg"
 post_install = "bootstrap-vcpkg.bat"
 )");
@@ -97,11 +97,11 @@ post_install = "bootstrap-vcpkg.bat"
     CHECK(*t.post_install == "bootstrap-vcpkg.bat");
 }
 
-TEST_CASE("[tools.X] post_install absent => optional is empty") {
+TEST_CASE("[tool.X] post_install absent => optional is empty") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.fmt]
+[tool.fmt]
 source = "github:fmtlib/fmt"
 )");
     REQUIRE(r.has_value());
@@ -109,11 +109,11 @@ source = "github:fmtlib/fmt"
     CHECK_FALSE(r->tools[0].post_install.has_value());
 }
 
-TEST_CASE("[tools.X] external_skip overrides probe target name") {
+TEST_CASE("[tool.X] external_skip overrides probe target name") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.openssh]
+[tool.openssh]
 source = "github:PowerShell/Win32-OpenSSH"
 external_skip = "ssh.exe"
 )");
@@ -124,21 +124,21 @@ external_skip = "ssh.exe"
     CHECK(*t.external_skip == "ssh.exe");
 }
 
-TEST_CASE("[tools.X] external_skip absent => optional is empty") {
+TEST_CASE("[tool.X] external_skip absent => optional is empty") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.cmake]
+[tool.cmake]
 source = "github:Kitware/CMake"
 )");
     REQUIRE(r.has_value());
     CHECK_FALSE(r->tools[0].external_skip.has_value());
 }
 
-TEST_CASE("[tools.X] shims as array populates list in order") {
+TEST_CASE("[tool.X] shims as array populates list in order") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[tools.openssh]
+[tool.openssh]
 source = "github:PowerShell/Win32-OpenSSH"
 shims  = ["ssh.exe", "ssh-keygen.exe", "ssh-agent.exe"]
 )");
@@ -151,10 +151,10 @@ shims  = ["ssh.exe", "ssh-keygen.exe", "ssh-agent.exe"]
     CHECK(t.shims[2] == "ssh-agent.exe");
 }
 
-TEST_CASE("[tools.X] shims as bare string is shorthand for one entry") {
+TEST_CASE("[tool.X] shims as bare string is shorthand for one entry") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.fd]
+[tool.fd]
 source = "github:sharkdp/fd"
 shims  = "fd.exe"
 )");
@@ -163,23 +163,23 @@ shims  = "fd.exe"
     CHECK(r->tools[0].shims[0] == "fd.exe");
 }
 
-TEST_CASE("[tools.X] shims absent => empty vector") {
+TEST_CASE("[tool.X] shims absent => empty vector") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.fmt]
+[tool.fmt]
 source = "github:fmtlib/fmt"
 )");
     REQUIRE(r.has_value());
     CHECK(r->tools[0].shims.empty());
 }
 
-TEST_CASE("[tools.X] shims with non-string entry is a schema error") {
+TEST_CASE("[tool.X] shims with non-string entry is a schema error") {
     // Caught the openssh footgun: silent-drop on type mismatch would have
     // let `shims = [1, 2]` parse successfully and silently install zero
     // shims. We want a loud error instead.
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.broken]
+[tool.broken]
 source = "github:x/y"
 shims  = ["ok.exe", 42]
 )");
@@ -187,10 +187,10 @@ shims  = ["ok.exe", 42]
     CHECK(r.error().find("shims") != std::string::npos);
 }
 
-TEST_CASE("[tools.X] shims of wrong scalar type is a schema error") {
+TEST_CASE("[tool.X] shims of wrong scalar type is a schema error") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.broken]
+[tool.broken]
 source = "github:x/y"
 shims  = 42
 )");
@@ -201,7 +201,7 @@ shims  = 42
 TEST_CASE("tool with neither source nor inline platform is an error") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.broken]
+[tool.broken]
 version = "1.0"
 )");
     CHECK_FALSE(r.has_value());
@@ -211,8 +211,8 @@ version = "1.0"
 TEST_CASE("inline platform missing required field is an error") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.fd]
-[[tools.fd.platform]]
+[tool.fd]
+[[tool.fd.platform]]
 target = "windows-x64"
 # missing url + sha256
 )");
@@ -220,30 +220,30 @@ target = "windows-x64"
     CHECK(r.error().find("url") != std::string::npos);
 }
 
-TEST_CASE("[programs.X] becomes a JSON config blob") {
+TEST_CASE("[config.X] becomes a JSON config blob") {
     auto r = bpt::parse_string(R"(
 name = "x"
 
-[programs.git]
+[config.git]
 userName = "Coh1e"
 userEmail = "x@example.com"
-[programs.git.aliases]
+[config.git.aliases]
 co = "checkout"
 br = "branch"
 
-[programs.bat]
+[config.bat]
 theme = "ansi"
 style = ["numbers", "changes", "header"]
 )");
     REQUIRE(r.has_value());
-    REQUIRE(r->programs.size() == 2);
+    REQUIRE(r->configs.size() == 2);
 
-    auto* git = r->find_program("git");
+    auto* git = r->find_config("git");
     REQUIRE(git);
     CHECK(git->config["userName"].get<std::string>() == "Coh1e");
     CHECK(git->config["aliases"]["co"].get<std::string>() == "checkout");
 
-    auto* bat = r->find_program("bat");
+    auto* bat = r->find_config("bat");
     REQUIRE(bat);
     CHECK(bat->config["theme"].get<std::string>() == "ansi");
     REQUIRE(bat->config["style"].is_array());
@@ -251,10 +251,10 @@ style = ["numbers", "changes", "header"]
     CHECK(bat->config["style"][0].get<std::string>() == "numbers");
 }
 
-TEST_CASE("[files.X] replace mode with content") {
+TEST_CASE("[file."path"] replace mode with content") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[files."~/.config/some-tool/config"]
+[file."~/.config/some-tool/config"]
 content = """
 key=value
 """
@@ -267,10 +267,10 @@ mode = "replace"
     CHECK(r->files[0].content.find("key=value") != std::string::npos);
 }
 
-TEST_CASE("[files.X] drop-in mode") {
+TEST_CASE("[file."path"] drop-in mode") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[files."~/.gitconfig.d/cli"]
+[file."~/.gitconfig.d/cli"]
 content = "[alias]\n    co = checkout\n"
 mode = "drop-in"
 )");
@@ -279,10 +279,10 @@ mode = "drop-in"
     CHECK(r->files[0].mode == bp::FileMode::DropIn);
 }
 
-TEST_CASE("[files.X] unknown mode is an error") {
+TEST_CASE("[file."path"] unknown mode is an error") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[files."~/x"]
+[file."~/x"]
 content = "x"
 mode = "weirdmode"
 )");
@@ -305,29 +305,29 @@ conflicts = ["legacy-tools"]
     CHECK(r->meta.conflicts[0] == "legacy-tools");
 }
 
-TEST_CASE("find_tool / find_program lookup") {
+TEST_CASE("find_tool / find_config lookup") {
     auto r = bpt::parse_string(R"(
 name = "x"
-[tools.ripgrep]
+[tool.ripgrep]
 source = "github:BurntSushi/ripgrep"
-[tools.fd]
+[tool.fd]
 source = "github:sharkdp/fd"
-[programs.git]
+[config.git]
 userName = "test"
 )");
     REQUIRE(r.has_value());
     CHECK(r->find_tool("ripgrep") != nullptr);
     CHECK(r->find_tool("fd") != nullptr);
     CHECK(r->find_tool("unknown") == nullptr);
-    CHECK(r->find_program("git") != nullptr);
-    CHECK(r->find_program("ripgrep") == nullptr);  // ripgrep is a tool, not a program
+    CHECK(r->find_config("git") != nullptr);
+    CHECK(r->find_config("ripgrep") == nullptr);  // ripgrep is a tool, not a program
 }
 
 TEST_CASE("multiple errors accumulate (don't fail on first)") {
     // Two separate violations: missing name, broken tool.
     auto r = bpt::parse_string(R"(
 description = "no name field above"
-[tools.broken]
+[tool.broken]
 version = "1.0"
 )");
     CHECK_FALSE(r.has_value());

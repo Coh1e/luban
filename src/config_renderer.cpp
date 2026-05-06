@@ -1,10 +1,10 @@
-// See `program_renderer.hpp`.
+// See `config_renderer.hpp`.
 //
 // Two flow stages:
 //
 //  1. resolve_source — find the Lua source for tool_name. User-level
-//     override at <config>/luban/programs/<tool>.lua wins; otherwise
-//     fall through to the embedded_programs namespace shipped with the
+//     override at <config>/luban/configs/<tool>.lua wins; otherwise
+//     fall through to the embedded_configs namespace shipped with the
 //     binary.
 //
 //  2. execute — spin a fresh sandboxed lua_engine::Engine, load the
@@ -17,7 +17,7 @@
 // keeps state from leaking across blueprints — a bug-prone thing once
 // users start writing custom renderers that touch globals.
 
-#include "program_renderer.hpp"
+#include "config_renderer.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -32,21 +32,21 @@ extern "C" {
 #include "lua_json.hpp"
 #include "paths.hpp"
 
-// Embedded-programs namespace — these headers are emitted by
-// cmake/embed_text.cmake from templates/programs/<X>.lua. The headers
+// Embedded-configs namespace — these headers are emitted by
+// cmake/embed_text.cmake from templates/configs/<X>.lua. The headers
 // declare `inline constexpr const char* <tool>_lua` strings.
 //
 // Wrapped in a single inclusion guard: the build system arranges for
 // the headers to exist by the time this TU is compiled. Adding a new
-// tool means: drop a new templates/programs/<X>.lua, list it in
+// tool means: drop a new templates/configs/<X>.lua, list it in
 // CMakeLists.txt's embed_text foreach, and append the include here.
-#include "luban/embedded_programs/git.hpp"
-#include "luban/embedded_programs/bat.hpp"
-#include "luban/embedded_programs/fastfetch.hpp"
-#include "luban/embedded_programs/yazi.hpp"
-#include "luban/embedded_programs/delta.hpp"
+#include "luban/embedded_configs/git.hpp"
+#include "luban/embedded_configs/bat.hpp"
+#include "luban/embedded_configs/fastfetch.hpp"
+#include "luban/embedded_configs/yazi.hpp"
+#include "luban/embedded_configs/delta.hpp"
 
-namespace luban::program_renderer {
+namespace luban::config_renderer {
 
 namespace {
 
@@ -56,11 +56,11 @@ namespace fs = std::filesystem;
 /// Adding a new builtin: include the embedded header above, add a row
 /// here. Linear search is fine — handful of entries, not a hot path.
 const char* embedded_source(std::string_view tool) {
-    if (tool == "git")        return luban::embedded_programs::git_lua;
-    if (tool == "bat")        return luban::embedded_programs::bat_lua;
-    if (tool == "fastfetch")  return luban::embedded_programs::fastfetch_lua;
-    if (tool == "yazi")       return luban::embedded_programs::yazi_lua;
-    if (tool == "delta")      return luban::embedded_programs::delta_lua;
+    if (tool == "git")        return luban::embedded_configs::git_lua;
+    if (tool == "bat")        return luban::embedded_configs::bat_lua;
+    if (tool == "fastfetch")  return luban::embedded_configs::fastfetch_lua;
+    if (tool == "yazi")       return luban::embedded_configs::yazi_lua;
+    if (tool == "delta")      return luban::embedded_configs::delta_lua;
     return nullptr;
 }
 
@@ -75,9 +75,9 @@ struct ResolvedSource {
 std::expected<ResolvedSource, std::string> resolve_source(std::string_view tool) {
     // 1. User override.
     // paths::config_dir() already ends in "luban", so just append
-    // "programs/<tool>.lua" — no need for an extra "luban" segment.
+    // "configs/<tool>.lua" — no need for an extra "luban" segment.
     fs::path user_path =
-        paths::config_dir() / "programs" / (std::string(tool) + ".lua");
+        paths::config_dir() / "configs" / (std::string(tool) + ".lua");
     std::error_code ec;
     if (fs::is_regular_file(user_path, ec)) {
         std::ifstream in(user_path);
@@ -95,8 +95,8 @@ std::expected<ResolvedSource, std::string> resolve_source(std::string_view tool)
     }
 
     return std::unexpected(
-        "no renderer for tool `" + std::string(tool) +
-        "` (no <config>/luban/programs/" + std::string(tool) +
+        "no renderer for `" + std::string(tool) +
+        "` (no <config>/luban/configs/" + std::string(tool) +
         ".lua and no builtin)");
 }
 
@@ -224,4 +224,4 @@ std::expected<RenderResult, std::string> render(std::string_view tool_name,
     return render_with_source(src->code, src->chunkname, cfg, ctx);
 }
 
-}  // namespace luban::program_renderer
+}  // namespace luban::config_renderer

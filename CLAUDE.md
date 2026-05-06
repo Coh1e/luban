@@ -120,7 +120,7 @@ src/                           # luban C++23 source
   store{,_fetch}.cpp           # 内容寻址 store
   external_skip.cpp
   file_deploy.cpp              # replace / drop-in 部署 + backup
-  program_renderer.cpp         # config 块 ([programs.X]) 调度 + 5 个内置 renderer
+  config_renderer.cpp          # config 块 ([config.X]) 调度 + 5 个内置 renderer
   lua_json.cpp                 # lua table ↔ JSON 桥
   generation.cpp               # 叠层快照 + atomic rollback
   blueprint_apply.cpp          # 编排器
@@ -212,7 +212,7 @@ https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
 
 `templates/programs/<tool>.lua` — 模块返回 `{ render(cfg, ctx), target_path(cfg, ctx) }`。
 然后 `CMakeLists.txt` 的 `foreach(PROG IN ITEMS ...)` 加上 `<tool>`，
-并在 `src/program_renderer.cpp` `#include` 生成的 header + 加进 switch。
+并在 `src/config_renderer.cpp` `#include` 生成的 header + 加进 switch。
 图纸里用 `[programs.<tool>]` 块喂 cfg。
 （用户级 renderer 走 `luban.register_renderer` Lua API 是 v1.1 工作；
 详 docs/FUTURE.md。）
@@ -312,5 +312,5 @@ CI verifies invariant 7 on both flavors:
 | `luban_cmake_gen::regenerate_in_project(dir, targets)` | `src/luban_cmake_gen.cpp` | 重渲项目 `luban.cmake` |
 | `vcpkg_manifest::{add,remove,save}` | `src/vcpkg_manifest.cpp` | 安全编辑 `vcpkg.json` |
 | `lua_engine::Engine::eval_*` | `src/lua_engine.cpp` | Sandboxed Lua VM (v1 scaffold) |
-| `program_renderer::render(name, cfg, ctx)` | `src/program_renderer.cpp` | config 块 → renderer 调度（5 个内置） |
+| `config_renderer::render(name, cfg, ctx)` | `src/config_renderer.cpp` | config 块 → renderer 调度（5 个内置） |
 | `cli::Subcommand::forward_rest` | `src/cli.hpp` | argv 透传（`luban run` 风格）|
