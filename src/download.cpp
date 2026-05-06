@@ -214,6 +214,17 @@ struct ParsedUrl {
 #define WINHTTP_PROTOCOL_FLAG_HTTP3 0x2
 #endif
 void enable_http2_on_session(HINTERNET session) {
+    // LUBAN_FORCE_HTTP1=1 skips the protocol-upgrade option entirely,
+    // leaving WinHTTP on its HTTP/1.1 default. Escape hatch for the
+    // case where HTTP/2 to a specific GitHub CDN endpoint (Fastly-
+    // hosted objects.githubusercontent.com is the known offender on
+    // VN networks — observed 14.9 KiB/s via WinHTTP+h2 vs 37 MiB/s
+    // via curl+h1.1 on the same machine and same URL, ~2500× delta)
+    // pessimizes throughput. The whole point of v0.1.4's HTTP/2
+    // switch was the codeload.github.com path being faster on h2;
+    // turns out that's not symmetric across all GitHub endpoints.
+    if (std::getenv("LUBAN_FORCE_HTTP1") != nullptr) return;
+
     DWORD flags = WINHTTP_PROTOCOL_FLAG_HTTP2;
     if (std::getenv("LUBAN_ENABLE_HTTP3") != nullptr) {
         flags |= WINHTTP_PROTOCOL_FLAG_HTTP3;
