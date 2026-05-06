@@ -43,6 +43,7 @@
 #include "../lua_engine.hpp"
 #include "../paths.hpp"
 #include "../renderer_registry.hpp"
+#include "../resolver_registry.hpp"
 #include "../source_registry.hpp"
 #include "../source_resolver.hpp"
 #include "../xdg_shim.hpp"
@@ -230,7 +231,8 @@ fs::path lock_path_for(const fs::path& source) {
 /// always fall through to fresh resolution.
 std::expected<bpl::BlueprintLock, std::string> resolve_lock(
     const fs::path& source, const bp::BlueprintSpec& spec,
-    bool force_resolve) {
+    bool force_resolve,
+    const luban::resolver_registry::ResolverRegistry* sreg = nullptr) {
     if (!source.empty() && !force_resolve) {
         auto lp = lock_path_for(source);
         std::error_code ec;
@@ -244,12 +246,18 @@ std::expected<bpl::BlueprintLock, std::string> resolve_lock(
     // warning so the rest of the blueprint (programs / files / tools
     // with inline platforms) still applies. apply() subsequently skips
     // the same tools because they have no lock entry.
+    //
+    // `sreg` is the bp-registered resolver registry (Tier 1, v0.4.x).
+    // For Lua bps that called `luban.register_resolver(scheme, fn)`
+    // during parse, this lets resolver dispatch find the user-supplied
+    // scheme handler before falling through to the C++ built-ins
+    // (github / pwsh-module).
     bpl::BlueprintLock lock;
     lock.schema = 1;
     lock.blueprint_name = spec.name;
     lock.resolved_at = gen::now_iso8601();
     for (auto& tool : spec.tools) {
-        auto resolved = luban::source_resolver::resolve(tool);
+        auto resolved = luban::source_resolver::resolve_with_registry(tool, sreg);
         if (!resolved) {
             std::fprintf(stderr,
                          "warning: tool `%s` skipped: %s\n",
@@ -280,11 +288,51 @@ int run_apply(const cli::ParsedArgs& args) {
 
     bool force_update = args.flags.count("update") && args.flags.at("update");
 
+    // Tier 1 (DESIGN §9.9): for Lua bps, parse a SECOND time inside a
+    // long-lived engine + two registries (renderer + resolver). Any
+    // `luban.register_renderer` / `luban.register_resolver` calls deposit
+    // refs we can re-invoke during the lock-resolve and render phases.
+    // The first parse (resolve_blueprint above) already gave us the spec
+    // for the apply pipeline; this second parse runs the same source for
+    // its side effects (register_*).
+    //
+    // Order matters: construct registries BEFORE lock resolve so a bp's
+    // register_resolver can affect the lock. Engine + registries live
+    // for the duration of run_apply.
+    //
+    // Cost: Lua parse is sub-ms — acceptable for the API symmetry win.
+    // For TOML bps we skip this path entirely; lock resolve falls back
+    // to plain resolve() (no registry); config_renderer uses its
+    // builtin-embedded dispatch (no registry needed).
+    std::optional<luban::lua::Engine> apply_engine;
+    std::optional<luban::renderer_registry::RendererRegistry> apply_registry;
+    std::optional<luban::resolver_registry::ResolverRegistry> apply_resolver_registry;
+    if (resolved->source_path.extension() == ".lua") {
+        apply_engine.emplace();
+        apply_registry.emplace();
+        apply_resolver_registry.emplace();
+        apply_engine->attach_registry(&*apply_registry);
+        apply_engine->attach_resolver_registry(&*apply_resolver_registry);
+        auto reparsed = luban::blueprint_lua::parse_file_in_engine(
+            *apply_engine, resolved->source_path);
+        if (!reparsed) {
+            std::cerr << "re-parse for renderer/resolver engine: "
+                      << reparsed.error() << "\n";
+            return 1;
+        }
+        // reparsed.spec discarded — register_* side effects into the
+        // registries are what we wanted. Spec is identical to
+        // resolved->spec (deterministic Lua parse, same source).
+    }
+
     // Embedded blueprints don't have a sibling .lock file (no path to
     // anchor it on); fall through to fresh resolution inside resolve_lock
     // by passing an empty path. --update forces fresh resolve even when
     // an on-disk lock exists.
-    auto lock = resolve_lock(resolved->source_path, resolved->spec, force_update);
+    const luban::resolver_registry::ResolverRegistry* sreg_for_lock =
+        apply_resolver_registry ? &*apply_resolver_registry : nullptr;
+    auto lock = resolve_lock(resolved->source_path, resolved->spec,
+                              force_update, sreg_for_lock);
     if (!lock) {
         std::cerr << "lock resolution: " << lock.error() << "\n";
         return 1;
@@ -318,32 +366,9 @@ int run_apply(const cli::ParsedArgs& args) {
         if (!bp_root.empty()) opts.bp_source_root = bp_root;
     }
 
-    // Tier 1 (DESIGN §9.9): for Lua bps, parse a SECOND time inside a
-    // long-lived engine + registry so that any `luban.register_renderer`
-    // calls deposit refs we can re-invoke during the render phase. The
-    // first parse (resolve_blueprint above) already gave us the spec for
-    // the apply pipeline; this second parse runs the same source for its
-    // side effects (register_renderer fires; we don't keep the result).
-    //
-    // Cost: Lua parse is sub-ms — acceptable for the API symmetry win.
-    // For TOML bps we skip this path entirely and config_renderer falls
-    // back to its builtin-embedded dispatch (no registry needed).
-    std::optional<luban::lua::Engine> apply_engine;
-    std::optional<luban::renderer_registry::RendererRegistry> apply_registry;
-    if (resolved->source_path.extension() == ".lua") {
-        apply_engine.emplace();
-        apply_registry.emplace();
-        apply_engine->attach_registry(&*apply_registry);
-        auto reparsed = luban::blueprint_lua::parse_file_in_engine(
-            *apply_engine, resolved->source_path);
-        if (!reparsed) {
-            std::cerr << "re-parse for renderer engine: "
-                      << reparsed.error() << "\n";
-            return 1;
-        }
-        // Discard reparsed.spec — register_renderer's side effect into
-        // *apply_registry is what we wanted. The spec itself is identical
-        // to resolved->spec (deterministic Lua parse, same source).
+    // (apply_engine + apply_registry constructed above for resolver-side
+    // registration; reuse the same pair for renderer dispatch in apply.)
+    if (apply_engine) {
         opts.lua_engine = &*apply_engine;
         opts.renderer_registry = &*apply_registry;
     }

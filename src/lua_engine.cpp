@@ -28,6 +28,7 @@ extern "C" {
 #include "luban/version.hpp"
 #include "paths.hpp"
 #include "renderer_registry.hpp"
+#include "resolver_registry.hpp"
 
 namespace luban::lua {
 
@@ -177,10 +178,11 @@ int api_download(lua_State* L) {
     return 2;
 }
 
-// Key under which we stash the RendererRegistry pointer in the engine's
+// Keys under which we stash registry pointers in the engine's
 // LUA_REGISTRYINDEX. lightuserdata so retrieval is cheap (no string keys
 // in hot paths).
 constexpr const char* kRendererRegistryKey = "luban_renderer_registry_ptr";
+constexpr const char* kResolverRegistryKey = "luban_resolver_registry_ptr";
 
 // `luban.register_renderer(name, module_table)` — declare a custom config
 // renderer for `[config.<name>]` blocks in the bp. `module_table` must
@@ -233,6 +235,34 @@ int api_register_renderer(lua_State* L) {
     return 0;
 }
 
+// `luban.register_resolver(scheme, fn)` — declare a custom source scheme.
+// `fn(spec)` returns a LockedTool-shaped table {url, sha256, bin} for the
+// host triplet. See DESIGN §9.9 inline registration. No-op when no
+// ResolverRegistry is attached (mirrors register_renderer's behaviour).
+int api_register_resolver(lua_State* L) {
+    const char* scheme = luaL_checkstring(L, 1);
+    if (!lua_isfunction(L, 2)) {
+        return luaL_error(L, "luban.register_resolver(\"%s\", fn): fn must "
+                              "be a function (received %s)",
+                          scheme, lua_typename(L, lua_type(L, 2)));
+    }
+    // luaL_ref pops the value at top of stack — make sure that's the fn.
+    lua_pushvalue(L, 2);
+    int fn_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    lua_pushstring(L, kResolverRegistryKey);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    auto* reg = static_cast<::luban::resolver_registry::ResolverRegistry*>(
+        lua_touserdata(L, -1));
+    lua_pop(L, 1);
+    if (!reg) {
+        luaL_unref(L, LUA_REGISTRYINDEX, fn_ref);
+        return 0;
+    }
+    reg->register_lua(scheme, L, fn_ref);
+    return 0;
+}
+
 void install_luban_api(lua_State* L) {
     lua_newtable(L);  // luban
 
@@ -270,6 +300,12 @@ void install_luban_api(lua_State* L) {
     lua_pushcfunction(L, api_register_renderer);
     lua_setfield(L, -2, "register_renderer");
 
+    // luban.register_resolver(scheme, fn) → register a custom source
+    // scheme handler. Mirror of register_renderer; same no-op semantics
+    // when no ResolverRegistry attached.
+    lua_pushcfunction(L, api_register_resolver);
+    lua_setfield(L, -2, "register_resolver");
+
     lua_setglobal(L, "luban");
 }
 
@@ -295,6 +331,18 @@ std::string top_as_string(lua_State* L) {
 void Engine::attach_registry(::luban::renderer_registry::RendererRegistry* reg) {
     if (!L_) return;
     lua_pushstring(L_, kRendererRegistryKey);
+    if (reg) {
+        lua_pushlightuserdata(L_, reg);
+    } else {
+        lua_pushnil(L_);
+    }
+    lua_settable(L_, LUA_REGISTRYINDEX);
+}
+
+void Engine::attach_resolver_registry(
+    ::luban::resolver_registry::ResolverRegistry* reg) {
+    if (!L_) return;
+    lua_pushstring(L_, kResolverRegistryKey);
     if (reg) {
         lua_pushlightuserdata(L_, reg);
     } else {

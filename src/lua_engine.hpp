@@ -31,6 +31,7 @@
 struct lua_State;
 
 namespace luban::renderer_registry { class RendererRegistry; }
+namespace luban::resolver_registry { class ResolverRegistry; }
 
 namespace luban::lua {
 
@@ -80,6 +81,11 @@ class Engine {
     /// Idempotent: re-attaching to a different registry replaces the
     /// pointer in this engine's LUA_REGISTRYINDEX stash.
     void attach_registry(luban::renderer_registry::RendererRegistry* reg);
+
+    /// Same as attach_registry but for `luban.register_resolver(scheme, fn)`.
+    /// Independent from the renderer registry — both can be attached to
+    /// the same Engine, neither requires the other.
+    void attach_resolver_registry(luban::resolver_registry::ResolverRegistry* reg);
 
    private:
     lua_State* L_ = nullptr;

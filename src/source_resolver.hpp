@@ -29,6 +29,8 @@
 #include "blueprint.hpp"
 #include "blueprint_lock.hpp"
 
+namespace luban::resolver_registry { class ResolverRegistry; }
+
 namespace luban::source_resolver {
 
 /// Take a parsed ToolSpec and produce a LockedTool by either
@@ -38,6 +40,19 @@ namespace luban::source_resolver {
 /// Returns the LockedTool ready to drop into BlueprintLock.tools[name].
 [[nodiscard]] std::expected<luban::blueprint_lock::LockedTool, std::string>
 resolve(const luban::blueprint::ToolSpec& spec);
+
+/// Same as resolve(), but consults a bp-registered ResolverRegistry first
+/// (Tier 1, DESIGN §9.9). If `registry` knows the source scheme, the bp's
+/// Lua function is invoked with `spec` and its return is mapped to a
+/// LockedTool. Otherwise falls through to the C++ scheme dispatch
+/// (github / pwsh-module / ...).
+///
+/// `registry` must outlive the call. Pass nullptr to behave identically
+/// to plain `resolve()`.
+[[nodiscard]] std::expected<luban::blueprint_lock::LockedTool, std::string>
+resolve_with_registry(
+    const luban::blueprint::ToolSpec& spec,
+    const luban::resolver_registry::ResolverRegistry* registry);
 
 /// Convenience: parse the leading scheme from a source string. Returns
 /// e.g. "github" for "github:BurntSushi/ripgrep". Empty string for
