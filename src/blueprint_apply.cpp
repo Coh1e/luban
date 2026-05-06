@@ -175,7 +175,12 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     auto next_gen = make_next_generation(next_id, spec.name);
 
     // ---- Tools ---------------------------------------------------------
+    const size_t total_tools = spec.tools.size();
+    size_t tool_idx = 0;
     for (auto& tool : spec.tools) {
+        ++tool_idx;
+        log::stepf("[{}/{}] tool: {}", tool_idx, total_tools, tool.name);
+
         // Step 1: external skip. The probe target defaults to `tool.name`
         // (e.g. "cmake" finds /usr/bin/cmake on a system that already has
         // it). When the brand and the canonical PATH binary differ —
@@ -189,8 +194,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
             rec.external_path = ext->resolved_path.string();
             next_gen.tools[tool.name] = std::move(rec);
             ++result.tools_external;
-            log::infof("tool {}: external (provided by {})",
-                       tool.name, ext->resolved_path.string());
+            log::infof("  external (provided by {})", ext->resolved_path.string());
             continue;
         }
 
@@ -215,9 +219,12 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
 
         // Step 3: fetch into store (idempotent).
         if (opts.dry_run) {
+            log::infof("  (dry-run) would fetch {}", plat->artifact_id);
             ++result.tools_fetched;
             continue;
         }
+        log::infof("  fetching {} ({})", plat->artifact_id,
+                   luban::platform::host_triplet());
         auto fetched = luban::store::fetch(plat->artifact_id, plat->url,
                                            plat->sha256, plat->bin);
         if (!fetched) {
@@ -230,6 +237,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         // would re-bootstrap an already-bootstrapped tool (vcpkg's
         // canonical case). Fresh extraction always runs it.
         if (tool.post_install && !fetched->was_already_present) {
+            log::infof("  post_install: {}", *tool.post_install);
             auto script = resolve_post_install(fetched->store_dir,
                                                *tool.post_install);
             if (!script) {
@@ -266,6 +274,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
             if (!shim) {
                 return std::unexpected("shim " + tool.name + ": " + shim.error());
             }
+            log::infof("  shim: {} -> {}", alias, paths::xdg_bin_home().string());
             primary_shim = shim->string();
             std::error_code rel_ec;
             auto rel = fs::relative(fetched->bin_path, fetched->store_dir, rel_ec);
@@ -303,6 +312,8 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
                     secondary_bin_rels.push_back(probe.generic_string());
                 }
             }
+            log::infof("  shims: {} alias(es) -> {}",
+                       tool.shims.size(), paths::xdg_bin_home().string());
         }
 
         gen::ToolRecord rec;
@@ -324,12 +335,18 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     ctx.blueprint_name = spec.name;
     ctx.platform = std::string(luban::platform::host_os());
 
+    const size_t total_progs = spec.programs.size();
+    size_t prog_idx = 0;
     for (auto& prog : spec.programs) {
+        ++prog_idx;
+        log::stepf("[{}/{}] config: {}", prog_idx, total_progs, prog.name);
         auto rendered = luban::program_renderer::render(prog.name, prog.config, ctx);
         if (!rendered) {
             return std::unexpected("render " + prog.name + ": " + rendered.error());
         }
         if (opts.dry_run) {
+            log::infof("  (dry-run) would render -> {}",
+                       rendered->target_path.string());
             ++result.files_deployed;
             continue;
         }
@@ -343,6 +360,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         if (!deployed) {
             return std::unexpected("deploy " + prog.name + ": " + deployed.error());
         }
+        log::infof("  rendered -> {}", deployed->target_path.string());
 
         gen::FileRecord rec;
         rec.from_blueprint = spec.name;
@@ -357,7 +375,11 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     }
 
     // ---- Files ---------------------------------------------------------
+    const size_t total_files = spec.files.size();
+    size_t file_idx = 0;
     for (auto& fspec : spec.files) {
+        ++file_idx;
+        log::stepf("[{}/{}] file: {}", file_idx, total_files, fspec.target_path);
         if (opts.dry_run) {
             ++result.files_deployed;
             continue;
@@ -367,6 +389,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
             return std::unexpected("deploy file " + fspec.target_path + ": " +
                                    deployed.error());
         }
+        log::infof("  deployed -> {}", deployed->target_path.string());
         gen::FileRecord rec;
         rec.from_blueprint = spec.name;
         rec.target_path = deployed->target_path.string();
@@ -388,6 +411,9 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     if (auto s = gen::set_current(next_id); !s) {
         return std::unexpected("set current: " + s.error());
     }
+    log::okf("applied generation {} ({} tool(s), {} config(s), {} file(s))",
+             next_id, result.tools_fetched + result.tools_external,
+             total_progs, total_files);
     return result;
 }
 

@@ -27,6 +27,7 @@
 #include "archive.hpp"
 #include "download.hpp"
 #include "hash.hpp"
+#include "log.hpp"
 #include "paths.hpp"
 
 namespace luban::store {
@@ -60,17 +61,24 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
                                               const FetchOptions& opts) {
     fs::path final_dir = store_path(artifact_id);
     if (is_present(artifact_id)) {
+        log::infof("  cached: {}", final_dir.string());
         return FetchResult{final_dir, final_dir / std::string(bin), true};
     }
 
     std::error_code ec;
     fs::create_directories(store_root(), ec);
-    if (ec) return std::unexpected("cannot create store root: " + ec.message());
+    if (ec) {
+        return std::unexpected("cannot create store root " +
+                               store_root().string() + ": " + ec.message());
+    }
 
     // Step 1: download.
     fs::path cache_downloads = paths::cache_dir() / "downloads";
     fs::create_directories(cache_downloads, ec);
-    if (ec) return std::unexpected("cannot create cache/downloads: " + ec.message());
+    if (ec) {
+        return std::unexpected("cannot create cache/downloads " +
+                               cache_downloads.string() + ": " + ec.message());
+    }
     fs::path archive_path = cache_downloads / (std::string(artifact_id) + ".archive");
 
     auto hash_spec = hash::parse(sha256);
@@ -83,20 +91,24 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     dlopts.label = opts.label.empty() ? std::string(artifact_id) : opts.label;
     auto dl = download::download(std::string(url), archive_path, dlopts);
     if (!dl) {
-        return std::unexpected("download failed: " + dl.error().message);
+        return std::unexpected("download failed (url=" + std::string(url) +
+                               "): " + dl.error().message);
     }
 
     // Step 2: extract to tmp dir.
+    log::infof("  extracting {}...", archive_path.filename().string());
     fs::path tmp = tmp_extract_dir(artifact_id);
     fs::create_directories(tmp, ec);
     if (ec) {
-        return std::unexpected("cannot create tmp extract dir: " + ec.message());
+        return std::unexpected("cannot create tmp extract dir " +
+                               tmp.string() + ": " + ec.message());
     }
 
     auto extract = archive::extract(archive_path, tmp);
     if (!extract) {
         fs::remove_all(tmp, ec);
-        return std::unexpected("extract failed: " + extract.error().message);
+        return std::unexpected("extract failed (archive=" + archive_path.string() +
+                               "): " + extract.error().message);
     }
 
     // Step 3: marker. Records what we put there for future debugging /
@@ -133,21 +145,56 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     // Step 4: atomic rename to final location. If we lose a race
     // (another luban process got there first), accept its work and
     // clean ours up.
+    //
+    // Robustness on Windows: the bare fs::rename can return
+    // ERROR_PATH_NOT_FOUND when (a) final_dir's parent has disappeared,
+    // (b) the source tmp has open handles from AV scanning the freshly
+    // extracted exes, or (c) we cross a junction boundary that the NT
+    // rename op refuses. Handle each case explicitly and surface paths
+    // in the error so the user can act on it.
+    std::error_code ec_mk;
+    fs::create_directories(final_dir.parent_path(), ec_mk);
+    if (ec_mk) {
+        fs::remove_all(tmp, ec);
+        return std::unexpected("cannot create store dir " +
+                               final_dir.parent_path().string() + ": " +
+                               ec_mk.message());
+    }
+
     fs::rename(tmp, final_dir, ec);
     if (ec) {
+        // (1) Race with a concurrent luban that already finished — accept.
         if (is_present(artifact_id)) {
-            fs::remove_all(tmp, ec);
+            fs::remove_all(tmp, ec_mk);
             return FetchResult{final_dir, final_dir / std::string(bin), true};
         }
+        // (2) final_dir exists but is incomplete (no marker). Clear and retry.
+        std::error_code ec_rm;
+        fs::remove_all(final_dir, ec_rm);
+        fs::create_directories(final_dir.parent_path(), ec_mk);
         std::error_code ec2;
-        fs::remove_all(final_dir, ec2);
         fs::rename(tmp, final_dir, ec2);
         if (ec2) {
-            fs::remove_all(tmp, ec);
-            return std::unexpected("rename to final dir failed: " + ec2.message());
+            // (3) Last-ditch: copy + remove. Survives cross-volume / junction
+            // boundaries that rename refuses, at the cost of doubling
+            // disk traffic for this one fetch.
+            std::error_code ec_cp;
+            fs::copy(tmp, final_dir,
+                     fs::copy_options::recursive |
+                         fs::copy_options::overwrite_existing,
+                     ec_cp);
+            if (ec_cp) {
+                fs::remove_all(tmp, ec_rm);
+                return std::unexpected(
+                    "rename to final dir failed: " + ec2.message() +
+                    " (and copy fallback failed: " + ec_cp.message() + ")"
+                    " (src=" + tmp.string() + " dst=" + final_dir.string() + ")");
+            }
+            fs::remove_all(tmp, ec_rm);
         }
     }
 
+    log::infof("  installed: {}", final_dir.string());
     return FetchResult{final_dir, final_dir / std::string(bin), false};
 }
 
