@@ -29,6 +29,7 @@
 #include "blueprint_apply.hpp"
 
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <system_error>
 
@@ -267,7 +268,51 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         std::string primary_bin_rel;
         std::vector<std::string> secondary_shims;
         std::vector<std::string> secondary_bin_rels;
-        if (tool.shims.empty()) {
+        std::set<std::string> aliases_seen;
+
+        // Single helper that handles one (absolute path inside store_dir)
+        // shim target — used by both the explicit `shims` list and the
+        // `shim_dir` enumeration below. Returns a string error on
+        // path-traversal, missing file, or empty alias; returns ok
+        // silently when the alias was already written (dedup).
+        auto add_shim = [&](const fs::path& absolute,
+                            const std::string& rel_str)
+            -> std::expected<void, std::string> {
+            fs::path normalized = absolute.lexically_normal();
+            fs::path probe = normalized.lexically_relative(fetched->store_dir);
+            std::string probe_s = probe.string();
+            if (probe_s.empty() || probe_s.rfind("..", 0) == 0) {
+                return std::unexpected("shim " + tool.name +
+                                       ": entry escapes artifact root: " + rel_str);
+            }
+            std::error_code ec_f;
+            if (!fs::is_regular_file(normalized, ec_f)) {
+                return std::unexpected("shim " + tool.name +
+                                       ": target not found: " + normalized.string());
+            }
+            std::string alias = normalized.stem().string();
+            if (alias.empty()) {
+                return std::unexpected("shim " + tool.name +
+                                       ": cannot derive alias from `" + rel_str + "`");
+            }
+            if (!aliases_seen.insert(alias).second) return {};  // dedup
+            auto shim = luban::xdg_shim::write_cmd_shim(alias, normalized);
+            if (!shim) {
+                return std::unexpected("shim " + tool.name + " (" + alias +
+                                       "): " + shim.error());
+            }
+            if (primary_shim.empty()) {
+                primary_shim = shim->string();
+                primary_bin_rel = probe.generic_string();
+            } else {
+                secondary_shims.push_back(shim->string());
+                secondary_bin_rels.push_back(probe.generic_string());
+            }
+            return {};
+        };
+
+        if (tool.shims.empty() && !tool.shim_dir) {
+            // Default: one shim derived from plat->bin.
             std::string alias = fs::path(plat->bin).stem().string();
             if (alias.empty()) alias = tool.name;
             auto shim = luban::xdg_shim::write_cmd_shim(alias, fetched->bin_path);
@@ -280,40 +325,44 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
             auto rel = fs::relative(fetched->bin_path, fetched->store_dir, rel_ec);
             if (!rel_ec) primary_bin_rel = rel.generic_string();
         } else {
+            // Explicit `shims` entries first — they get priority and any
+            // alias in this list is locked in before shim_dir expansion
+            // runs (so a curated entry wins over an auto-discovered one
+            // with the same alias).
             for (auto const& rel : tool.shims) {
-                fs::path joined     = fetched->store_dir / fs::path(rel);
-                fs::path normalized = joined.lexically_normal();
-                fs::path probe      = normalized.lexically_relative(fetched->store_dir);
-                std::string probe_s = probe.string();
-                if (probe_s.empty() || probe_s.rfind("..", 0) == 0) {
-                    return std::unexpected("shim " + tool.name +
-                                           ": shims entry escapes artifact root: " + rel);
+                if (auto r = add_shim(fetched->store_dir / fs::path(rel), rel); !r) {
+                    return std::unexpected(r.error());
                 }
-                std::error_code ec;
-                if (!fs::is_regular_file(normalized, ec)) {
-                    return std::unexpected("shim " + tool.name +
-                                           ": shims target not found: " + normalized.string());
+            }
+            // shim_dir: enumerate every .exe under <store_dir>/<shim_dir>/.
+            // Non-windows hosts skip the .exe filter and use the
+            // executable bit instead — `luban-bps` only sets shim_dir on
+            // Windows-shipped tools today, so this branch is dormant
+            // until POSIX bps land.
+            if (tool.shim_dir) {
+                fs::path sd_abs = fetched->store_dir / fs::path(*tool.shim_dir);
+                std::error_code ec_iter;
+                if (!fs::is_directory(sd_abs, ec_iter)) {
+                    return std::unexpected("shim " + tool.name + ": shim_dir `" +
+                                           *tool.shim_dir + "` is not a directory");
                 }
-                std::string alias = normalized.stem().string();
-                if (alias.empty()) {
-                    return std::unexpected("shim " + tool.name +
-                                           ": cannot derive alias from `" + rel + "`");
-                }
-                auto shim = luban::xdg_shim::write_cmd_shim(alias, normalized);
-                if (!shim) {
-                    return std::unexpected("shim " + tool.name + " (" + alias +
-                                           "): " + shim.error());
-                }
-                if (primary_shim.empty()) {
-                    primary_shim = shim->string();
-                    primary_bin_rel = probe.generic_string();
-                } else {
-                    secondary_shims.push_back(shim->string());
-                    secondary_bin_rels.push_back(probe.generic_string());
+                for (auto const& e : fs::directory_iterator(sd_abs, ec_iter)) {
+                    if (!e.is_regular_file(ec_iter)) continue;
+                    auto p = e.path();
+#ifdef _WIN32
+                    if (p.extension() != ".exe") continue;
+#else
+                    auto perms = fs::status(p, ec_iter).permissions();
+                    if ((perms & fs::perms::owner_exec) == fs::perms::none) continue;
+#endif
+                    std::string rel_str = (*tool.shim_dir + "/" + p.filename().string());
+                    if (auto r = add_shim(p, rel_str); !r) {
+                        return std::unexpected(r.error());
+                    }
                 }
             }
             log::infof("  shims: {} alias(es) -> {}",
-                       tool.shims.size(), paths::xdg_bin_home().string());
+                       aliases_seen.size(), paths::xdg_bin_home().string());
         }
 
         gen::ToolRecord rec;

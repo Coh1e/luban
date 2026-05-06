@@ -192,8 +192,12 @@ https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
    source repo 的 `blueprints/` 下（**luban 这边不动代码**）。
 2. 在 `[tools.X]` 节加 `source = "github:owner/repo"`；非 GitHub releases 用
    显式的 `[[tools.X.platform]]` block（url + sha256 + bin）。多 binary 工具
-   加 `shims = ["a.exe", "b.exe"]`；本机已装就跳过的工具加
-   `external_skip = "ssh.exe"`（probe 名跟 tool 名不一致时用）。
+   有两种声明方式：(a) `shims = ["bin/a.exe", "bin/b.exe"]` 显式列入口；
+   (b) `shim_dir = "bin"` 让 luban 自动 shim 该目录下所有 `.exe`（v0.1.6+，
+   适合 llvm-mingw 这种 ~270 binary 的工具，避免硬编码 list 跟上游版本漂移）。
+   两个字段可以并存——`shims` 优先级高，`shim_dir` 跳过同名 alias。
+   本机已装就跳过的工具加 `external_skip = "ssh.exe"`（probe 名跟 tool 名
+   不一致时用）。
 3. 添加新 source scheme：照 `src/source_resolver_github.cpp` 写一个 per-scheme TU，
    在 `LUBAN_SOURCES` 里加一行，static-init 注册到 `source_resolver` 的 dispatch table
    （blueprint Lua 直接 register 是 v1.1 工作）。
@@ -259,7 +263,8 @@ CI verifies invariant 7 on both flavors:
 | `LUBAN_FORCE_REINSTALL` | unset | =1 时 install.ps1 跳过 SHA-命中短路 |
 | `LUBAN_FLAVOR` | `msvc` | release 选哪个 flavor (`msvc` \| `mingw`) |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代 prefix（如 `https://ghfast.top`），重写 `github.com` / `*.githubusercontent.com` URL；**不**重写 `api.github.com`（公共 mirror 都 403 它）。注意 ghfast.top 限速严格，VN 网络下直连可能更快 |
-| `LUBAN_PARALLEL_CHUNKS` | 1 | bp apply 下载时 Range 并发数（0 / 1 = 单流，最高 16）。**默认单流是有原因的**——GitHub release CDN 对多并发 per-IP throttle 很狠，VN 网络实测 1 路 4.7 MB/s，4 路掉到 150 KB/s。只在私有 S3 / 内网镜像这种不限速的场景调高 |
+| `LUBAN_PARALLEL_CHUNKS` | 1 | bp apply 下载时 Range 并发数（0 / 1 = 单流，最高 16）。**默认单流是有原因的**——GitHub release CDN 对多并发 per-IP throttle 很狠，VN 网络实测 1 路 4.7 MB/s，4 路掉到 150 KB/s。只在私有 S3 / 内网镜像这种不限速的场景调高（详 DESIGN §25.2） |
+| `LUBAN_EXTRACT_THREADS` | min(8, hw_concurrency) | archive::extract worker 数（0 = 单线程）。llvm-mingw 测 4 路对单流 ~5× 加速，超过 ~8 SSD 写饱和无意义 |
 | `LUBAN_PROGRESS` | unset | =1 强制开 progress bar（非 TTY 也开） |
 | `LUBAN_NO_PROGRESS` | unset | =1 关 progress bar |
 

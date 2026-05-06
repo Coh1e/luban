@@ -124,14 +124,67 @@ struct Progress {
         } else {
             line = std::format("  {}  {}  {}", format_bytes(done), rate_str, label);
         }
-        std::fprintf(stderr, "\r%s    ", line.c_str());
+        // Clear-line each frame so a shrinking line doesn't leave
+        // tails (e.g. " ninja-w" stuck after the bar shifts to
+        // "downloaded 9.7 MiB ..."). Same VT consideration as
+        // finish(); legacy cmd.exe sees the literal escape but the
+        // bar still lands.
+        std::fprintf(stderr, "\r\x1b[2K%s", line.c_str());
         std::fflush(stderr);
     }
 
     void finish() {
         if (!enabled) return;
-        std::fprintf(stderr, "\r%-100s\r", "");
+        // ANSI '\x1b[2K' clears the entire line regardless of width;
+        // the fixed-width 100-space form left tails when the rendered
+        // line was longer (chunked-mode label + multi-MB byte counts
+        // routinely run >100 chars). Win10+ Conhost has VT processing
+        // on for new shells; the few legacy cmd.exe windows that don't
+        // will print the literal escape (cosmetic only, not breaking).
+        std::fprintf(stderr, "\r\x1b[2K");
         std::fflush(stderr);
+    }
+};
+
+// ---- Stall watchdog -------------------------------------------------------
+// Real-world failure mode (VN -> github.com release CDN, 2026-05-06): a
+// download starts at full speed, then the CDN gradually clamps the
+// connection until throughput collapses to zero. Bytes still trickle in
+// (a few hundred per minute), so WinHTTP's per-receive timeout never
+// fires. The user sees "stuck at 14%" forever.
+//
+// StallDetector tracks bytes received over a rolling time window. When
+// the average rate over the window drops below `kMinRate`, ok() returns
+// false and the caller bails out. Outer retry loop then re-issues, which
+// often succeeds because GitHub's clamp resets per-connection.
+//
+// Tuning: 15s warmup avoids false positives on the initial TLS handshake
+// + DNS + first packet (which can collectively burn 3-5s on a high-RTT
+// VPN). 1 KiB/s as the floor — any real download moves more than that.
+struct StallDetector {
+    using clock = std::chrono::steady_clock;
+    clock::time_point window_start;
+    int64_t window_bytes = 0;
+    int64_t total_bytes = 0;
+    static constexpr auto kWindow = std::chrono::seconds(15);
+    static constexpr int64_t kMinRate = 1024;  // bytes / sec
+
+    StallDetector() : window_start(clock::now()) {}
+
+    void record(int64_t n) {
+        window_bytes += n;
+        total_bytes += n;
+    }
+    bool ok() {
+        auto now = clock::now();
+        auto dt = now - window_start;
+        if (dt < kWindow) return true;  // warmup window
+        auto secs = std::chrono::duration<double>(dt).count();
+        if ((window_bytes / secs) < static_cast<double>(kMinRate)) return false;
+        // Rate fine — slide window forward and continue.
+        window_start = now;
+        window_bytes = 0;
+        return true;
     }
 };
 
@@ -320,6 +373,7 @@ std::expected<int64_t, Error> do_request(
 
     int64_t done = 0;
     std::vector<unsigned char> buf(kChunk);
+    StallDetector stall;
     while (true) {
         DWORD avail = 0;
         if (!WinHttpQueryDataAvailable(req.h, &avail))
@@ -332,6 +386,11 @@ std::expected<int64_t, Error> do_request(
         if (got == 0) break;
         if (auto e = sink(buf.data(), got, total); !e.has_value()) return std::unexpected(e.error());
         done += got;
+        stall.record(got);
+        if (!stall.ok()) {
+            return std::unexpected(Error{ErrorKind::Network,
+                "transfer stalled (<1 KiB/s for 15s)"});
+        }
     }
     return done;
 }
@@ -511,6 +570,7 @@ std::expected<int64_t, Error> download_range_to_file(
 
     int64_t written = 0;
     std::vector<unsigned char> buf(kChunk);
+    StallDetector stall;
     while (true) {
         DWORD avail = 0;
         if (!WinHttpQueryDataAvailable(req.h, &avail)) {
@@ -532,6 +592,12 @@ std::expected<int64_t, Error> download_range_to_file(
         }
         written += wrote;
         if (on_bytes) on_bytes(static_cast<size_t>(wrote));
+        stall.record(wrote);
+        if (!stall.ok()) {
+            CloseHandle(fh);
+            return std::unexpected(Error{ErrorKind::Network,
+                "transfer stalled (<1 KiB/s for 15s)"});
+        }
     }
     CloseHandle(fh);
     return written;
@@ -806,7 +872,10 @@ std::expected<DownloadResult, Error> download(
             std::chrono::steady_clock::now() - t_start).count();
         if (dt < 1e-3) dt = 1e-3;
         double rate = static_cast<double>(bytes) / dt;
-        log::okf("  ✓ downloaded {} in {:.1f}s ({}/s)",
+        // log::ok prepends its own green ✓; don't duplicate it in the
+        // body. Indent with two spaces to slot under the "[i/N] tool"
+        // step header from blueprint_apply.
+        log::okf("  downloaded {} in {:.1f}s ({}/s)",
                  Progress::format_bytes(bytes), dt,
                  Progress::format_bytes(static_cast<int64_t>(rate)));
     };

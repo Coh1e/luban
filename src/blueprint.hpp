@@ -99,6 +99,20 @@ struct ToolSpec {
     /// (ssh, ssh-keygen, ssh-agent, scp, sftp), llvm-mingw (clang,
     /// clang++, gcc, g++, ld, llvm-ar, ...).
     std::vector<std::string> shims;
+
+    /// Optional path (relative to artifact root) to a directory; every
+    /// `*.exe` (Windows) / executable file (POSIX) inside it gets a
+    /// shim under `~/.local/bin/`. Resolves at apply time against the
+    /// extracted store_dir, so the bp doesn't need to enumerate
+    /// upstream-toolchain binary names by hand. Composes with `shims`:
+    /// both lists are unioned, deduplicated by alias.
+    ///
+    /// Use case: llvm-mingw ships ~270 binaries in `bin/` (clang+lld+
+    /// llvm-* + gcc-aliases + cross-triplet variants), and listing
+    /// each one in TOML is fragile (a new toolchain release adds or
+    /// removes entries; the explicit list goes stale). `shim_dir =
+    /// "bin"` is the right shape for that data.
+    std::optional<std::string> shim_dir;
 };
 
 /// One `[programs.X]` block: tool name + arbitrary nested config that

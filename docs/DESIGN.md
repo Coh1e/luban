@@ -1154,3 +1154,70 @@ vendor 政策：`third_party/doctest.h`；版本从 GitHub releases 取最新 st
 ### 24.2 开放
 
 （暂无——上轮讨论的设计议题全部收口；剩余开放问题属实现侧，待落地时拍。）
+
+## 25. 网络 / 下载策略经验（v0.1.x 实测，VN→GitHub）
+
+议题 R 落地后的一轮真实用户迭代（v0.1.0 → v0.1.6，2026-05-06）暴露了几个反直觉的工程结论。**写代码前先量化**——对应 ADR 的"先测再改"原则。
+
+### 25.1 协议版本压倒一切：HTTP/2 vs HTTP/1.1 ≈ 80×
+
+同一 3 MB 二进制，同一时刻测 GitHub release CDN：
+
+| 工具 / 协议 | 速度 |
+|---|---|
+| PowerShell `Invoke-WebRequest` (HTTP/1.1) | 48 KB/s |
+| Windows `curl.exe` 8.18 (HTTP/2) | 4 MB/s |
+
+**结论**：installer 必须走 `curl.exe`（Windows 1803+ 系统自带），luban C++ 必须 `WinHttpSetOption(WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, HTTP2|HTTP3)`。这两条不开就是 80× 退化。**两个常量都自己 #ifndef define 出来**——SDK header 版本不全部带这俩，但 OS 1607+ 都识别。
+
+### 25.2 多 TCP 连接并行 ≠ 更快（CDN per-IP throttle）
+
+朴素直觉是「N 路并发 = N× 速度」，实测彻底反过来：
+
+| 策略 | 总速 |
+|---|---|
+| 1 路单流 HTTP/1.1 | 4.7 MB/s |
+| 4 路并行 HTTP/1.1 (Range chunk) | 150 KB/s aggregate（其中 1 路被 RST，3 路降速到 ~50 KB/s） |
+
+GitHub 对每 IP 的并发连接有侵略性 throttle。浏览器看起来快是因为 HTTP/2 在**单 TCP 内多路复用**，CDN 看到的还是一条连接。**`LUBAN_PARALLEL_CHUNKS` 默认从 4 改成 1**；只在私有 S3 / 内网镜像（无 throttle）才值得调高。
+
+### 25.3 公共 GitHub 反代是反向加速器
+
+`ghfast.top` / `gh-proxy.com` / `mirror.ghproxy.com` 这类免费反代实测对 IP 限速到 **3-4 KB/s**，比直连 GitHub 慢 25×。它们只在 GitHub 完全封堵的网络下有意义；VN/CN 能直连就别走。
+
+例外：`api.github.com` 大多数公共反代直接 403 拒绝（用 token 算 quota 的 GitHub API 不在反代逻辑内）。所以 `LUBAN_GITHUB_MIRROR_PREFIX` 的允许列表必须排除 `api.github.com`，只重写 `github.com` / `*.githubusercontent.com`。
+
+### 25.4 空值穿过默认代码 = 静默崩溃
+
+`source_resolver_github` 写 lock 时把 `lp.artifact_id = ""` 留空、注释「store will fill on first fetch」——但 `store::fetch(artifact_id="", ...)` 没填、直接用空串。结果：
+
+- `archive_path = <cache>/<id>.archive` → `.archive`（无前缀，所有 tool 共享一个文件）
+- `final_dir = <store>/<id>` → `<store>/`（store 根本身）
+- `fs::rename(tmp, store_root)` → `ERROR_PATH_NOT_FOUND`
+
+**根因不在 rename**——v0.1.0 给 rename 加 robustness 反而把症状埋深了一层。教训：**boundary 上 guard 输入合法，胜过下游容错**。`store::fetch` 现在开头直接拒空 artifact_id，有问题立刻冒上来；resolver 必须在写 lock 前算 `compute_artifact_id`。
+
+### 25.5 资产 scorer 必须做 token-anchor 匹配
+
+`ninja-1.13.x` 的 release 资产里 `ninja-mac.zip` 和 `ninja-win.zip` 名字结构相同，scorer 给 windows-x64 host 打分时两者都拿 `+2`（仅 `.zip` 加分）—— iteration order 让 mac 先匹配赢。
+
+朴素的 `contains("win") / contains("mac")` 不行：`darwin` 含 "win"、`macroscope` 含 "mac"。修法：**token boundary 匹配**——`needle` 两侧必须是 `-` `_` `.` `/` 或 EOL：
+
+```cpp
+has_os_token("ninja-win.zip", "win")     // ✓ 两侧 '-' / '.'
+has_os_token("ninja-darwin.zip", "win")  // ✗ 右侧 'r'，不锚
+```
+
+### 25.6 stall watchdog 是必需品
+
+WinHTTP 的 per-receive timeout（默认 30s）只在**完全无数据**时触发。CDN 限速的常见模式是「数据慢慢滴」——每秒几百字节，timeout 永不触发，下载冻在 14% 不动。
+
+加 `StallDetector`：滚动 15s 窗口，平均速率 < 1 KiB/s 就主动 abort（外层 retry 循环重发，常常恢复）。
+
+### 25.7 多线程 unzip 对 ~270 文件包是 5× 加速
+
+llvm-mingw 单线程 inflate 154s vs 4 worker 并行 ~30s。每个 worker 在同一 zip 文件上独立 `mz_zip_reader_init_file`（miniz 的 reader 不是线程安全的，但同一文件可以多 reader），然后从原子 index counter 拉条目。SSD 在 4-6 路并发写时基本饱和，超过没意义；hardware_concurrency 默认 cap 在 8。
+
+### 25.8 元方法论：先量化再改代码
+
+最值钱的工具是 `curl --http2 vs --http1.1` 同时刻同文件对比、`PowerShell HttpWebRequest 4 路 jobs` 测 throttle、`gh api` 看 lock 真实写了什么。每次 1 秒钟看清问题，避免几小时假设错误的根因。**这一轮 v0.1.0 → v0.1.6 六个 release 几乎每个都是先 probe → 拿数字 → 写补丁**——这才是这种 cross-network 调试的工作姿势。

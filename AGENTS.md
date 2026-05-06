@@ -17,10 +17,13 @@
 2. **不要 canonicalize 路径**：`D:\dobby` 等 junction 会破坏 `relative_to`。直接用用户输入的字面路径。
 3. **luban.exe 自身不引第三方依赖**：除非是 single-header 且 vendor 到 `third_party/` + LICENSE。**不嵌 Rust crate / DLL**。Lua 5.4 是当前唯一多文件例外（QJS 是 v1.x 议题 T，本期不 vendor）。
 4. **`luban.cmake` schema 改动 = 破坏性升级**：必须 v2 标记 + 兼容读回。
-5. **静态链接**：`-static -static-libgcc -static-libstdc++` 不能丢。
+5. **静态链接**（议题 R, dual-flavor）：MinGW 走 `-static -static-libgcc -static-libstdc++`，MSVC 走 `CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded` (`/MT`)。CI 用 `dumpbin` / `llvm-readobj` 校验无 `vcruntime / msvcp / libgcc_s / libstdc++` 依赖；release 同时产 `luban-msvc.exe` + `luban-mingw.exe`，两条路径都不能退化到动态 CRT。
 6. **HKCU only**：测试代码也不能尝试写 `HKLM`。
 7. **shim 路径 = `~/.local/bin/`**：toolchain bin 绝不进 PATH（议题 G + 不变量 5）。任何代码写老 `<data>/bin/` 都是 v0.x 残留。
 8. **代码注释质量**：注释解释 WHY 与上下文（不只是 WHAT）；公开 API 都有 doxygen 风格 brief；复杂分支/状态机/边界条件必须 inline 注释；删代码同步删注释。
+9. **先量化再改代码**（DESIGN §25.8）：网络 / 性能 / 行为差异类 bug 第一动作是 `curl` / `gh api` / `dumpbin` / `Measure-Object` 等单行 probe 拿到数字，而不是直接 patch。无数据的猜测会让你修错根因——v0.1.0 修 rename 不修空 `artifact_id` 是这条原则被违反的代价。
+10. **修根因不修症状**：错误冒出的位置往往不是错误的来源。看到莫名其妙的 PATH_NOT_FOUND / SHA mismatch / 速度异常时，向上游追到第一个产生病态值的边界——通常在 resolver / parser / config 写入处。下游 try-catch 是硬技术债。
+11. **boundary guard 优于全链路容错**：在 trust boundary（用户输入、外部 API 返回、跨进程 IPC）显式 reject 非法值并报路径，比在十处下游各加 `if (empty) return early` 干净得多。`store::fetch` 拒绝空 `artifact_id` 是范式案例。
 
 ## 代码注释（agent 输出代码必读）
 

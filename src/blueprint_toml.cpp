@@ -136,6 +136,8 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
                     "] shims must be a string or array of strings");
         }
 
+        if (auto v = (*tool_tbl)["shim_dir"].value<std::string>()) tool.shim_dir = *v;
+
         // [[tools.X.platform]] inline blocks (manual mode).
         if (auto* platforms = (*tool_tbl)["platform"].as_array()) {
             for (auto&& p_node : *platforms) {
