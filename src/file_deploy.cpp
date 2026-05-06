@@ -16,7 +16,10 @@
 #include <cstdint>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 #include <system_error>
+
+#include "json.hpp"
 
 #include "file_util.hpp"
 #include "hash.hpp"
@@ -95,6 +98,90 @@ std::string sha256_of_content(std::string_view content) {
     return h->hex;
 }
 
+std::expected<std::string, std::string> read_file(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) {
+        return std::unexpected("cannot read " + p.string());
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+// RFC 7396 JSON Merge Patch.
+// - If `patch` is not an object, the result is `patch` (replaces target).
+// - Else: for each (k, v) in patch:
+//     - if v is null:   remove target[k]
+//     - else:           target[k] = merge(target[k] or null, v)
+// Recursive on nested objects.
+nlohmann::json json_merge_patch(nlohmann::json target, const nlohmann::json& patch) {
+    if (!patch.is_object()) return patch;
+    if (!target.is_object()) target = nlohmann::json::object();
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        if (it.value().is_null()) {
+            target.erase(it.key());
+        } else {
+            target[it.key()] = json_merge_patch(
+                target.contains(it.key()) ? target[it.key()] : nlohmann::json{},
+                it.value());
+        }
+    }
+    return target;
+}
+
+constexpr std::string_view kMarkerOpenPrefix  = "# >>> luban:";
+constexpr std::string_view kMarkerOpenSuffix  = " >>>";
+constexpr std::string_view kMarkerClosePrefix = "# <<< luban:";
+constexpr std::string_view kMarkerCloseSuffix = " <<<";
+
+// Replace (or append) the marker block keyed by `bp_name` in `existing`
+// with `content`. The block is delimited by the kMarker* lines; if the
+// block isn't found, append a new one at the end of the file (with one
+// blank-line separator if `existing` is non-empty and doesn't end in \n).
+std::string replace_or_append_marker_block(std::string_view existing,
+                                           std::string_view bp_name,
+                                           std::string_view content) {
+    std::string open_line  = std::string(kMarkerOpenPrefix)  + std::string(bp_name) + std::string(kMarkerOpenSuffix);
+    std::string close_line = std::string(kMarkerClosePrefix) + std::string(bp_name) + std::string(kMarkerCloseSuffix);
+
+    auto open_pos = existing.find(open_line);
+    if (open_pos != std::string_view::npos) {
+        auto close_pos = existing.find(close_line, open_pos + open_line.size());
+        if (close_pos != std::string_view::npos) {
+            std::string out;
+            out.reserve(existing.size() + content.size());
+            out.append(existing.substr(0, open_pos));
+            out.append(open_line);
+            out.push_back('\n');
+            out.append(content);
+            if (!content.empty() && content.back() != '\n') out.push_back('\n');
+            out.append(close_line);
+            // Preserve everything after the close marker line, including
+            // its trailing newline if present.
+            auto tail_start = close_pos + close_line.size();
+            out.append(existing.substr(tail_start));
+            return out;
+        }
+        // Open without close — treat as malformed and fall through to
+        // append (loud warn would be nice but file_deploy returns expected,
+        // not a logger). The result is that the orphan open line stays
+        // and a fresh complete block is appended after it; user sees
+        // two open markers and can clean up manually.
+    }
+
+    // Append fresh block.
+    std::string out(existing);
+    if (!out.empty() && out.back() != '\n') out.push_back('\n');
+    if (!out.empty()) out.push_back('\n');  // visual separator
+    out.append(open_line);
+    out.push_back('\n');
+    out.append(content);
+    if (!content.empty() && content.back() != '\n') out.push_back('\n');
+    out.append(close_line);
+    out.push_back('\n');
+    return out;
+}
+
 }  // namespace
 
 fs::path expand_home(std::string_view raw) {
@@ -114,13 +201,86 @@ fs::path expand_home(std::string_view raw) {
 }
 
 std::expected<DeployedFile, std::string> deploy(const bp::FileSpec& spec,
-                                                int generation_id) {
+                                                int generation_id,
+                                                std::string_view bp_name) {
     fs::path target = expand_home(spec.target_path);
 
     DeployedFile out;
     out.target_path = target;
     out.mode = spec.mode;
-    out.content_sha256 = sha256_of_content(spec.content);
+
+    std::error_code ec;
+    fs::create_directories(target.parent_path(), ec);
+    if (ec) {
+        return std::unexpected("cannot create parent dir of " +
+                               target.string() + ": " + ec.message());
+    }
+
+    // Compute the actual bytes to write. For replace / drop-in this is
+    // just spec.content. For merge / append we need to read the existing
+    // file (if any) and combine. final_bytes is what lands on disk and
+    // what gets snapshotted into the content store.
+    std::string final_bytes;
+
+    switch (spec.mode) {
+        case bp::FileMode::Replace:
+        case bp::FileMode::DropIn:
+            final_bytes = spec.content;
+            break;
+
+        case bp::FileMode::Merge: {
+            nlohmann::json patch;
+            try {
+                patch = nlohmann::json::parse(spec.content);
+            } catch (const nlohmann::json::parse_error& e) {
+                return std::unexpected("merge mode: content is not valid JSON ("
+                                       + std::string(e.what()) + ")");
+            }
+            nlohmann::json target_doc = nlohmann::json::object();
+            if (fs::exists(target, ec)) {
+                auto existing = read_file(target);
+                if (!existing) return std::unexpected(existing.error());
+                if (!existing->empty()) {
+                    try {
+                        target_doc = nlohmann::json::parse(*existing);
+                    } catch (const nlohmann::json::parse_error& e) {
+                        return std::unexpected(
+                            "merge mode: existing target " + target.string() +
+                            " is not valid JSON (" + std::string(e.what()) + ")");
+                    }
+                }
+            }
+            auto merged = json_merge_patch(std::move(target_doc), patch);
+            // dump(2) — pretty-print with 2-space indent. settings.json,
+            // .vscode/settings.json etc all use this, and humans editing
+            // by hand expect it. If a target uses a different style users
+            // can re-format after; we don't introspect.
+            final_bytes = merged.dump(2);
+            if (!final_bytes.empty() && final_bytes.back() != '\n') {
+                final_bytes.push_back('\n');
+            }
+            break;
+        }
+
+        case bp::FileMode::Append: {
+            if (bp_name.empty()) {
+                return std::unexpected(
+                    "append mode requires bp_name (caller must pass it; "
+                    "marker block is keyed by bp name for idempotency)");
+            }
+            std::string existing;
+            if (fs::exists(target, ec)) {
+                auto e = read_file(target);
+                if (!e) return std::unexpected(e.error());
+                existing = std::move(*e);
+            }
+            final_bytes = replace_or_append_marker_block(existing, bp_name,
+                                                         spec.content);
+            break;
+        }
+    }
+
+    out.content_sha256 = sha256_of_content(final_bytes);
 
     // Snapshot deployed bytes into the content store, keyed by sha. Used
     // by blueprint_reconcile to recreate files when rolling back across
@@ -137,24 +297,18 @@ std::expected<DeployedFile, std::string> deploy(const bp::FileSpec& spec,
         }
         auto cs_path = cs_dir / "content";
         if (!fs::exists(cs_path, cs_ec)) {
-            if (!file_util::write_text_atomic(cs_path, spec.content)) {
+            if (!file_util::write_text_atomic(cs_path, final_bytes)) {
                 return std::unexpected("write failed: " + cs_path.string());
             }
         }
     }
 
-    std::error_code ec;
-    fs::create_directories(target.parent_path(), ec);
-    if (ec) {
-        return std::unexpected("cannot create parent dir of " +
-                               target.string() + ": " + ec.message());
-    }
-
-    // Replace mode: back up an existing target before writing. Drop-in
-    // mode never touches the canonical user-owned file, so backup is
-    // unnecessary even when the drop-in subfile already exists (luban
-    // owns drop-in subfiles by definition).
-    if (spec.mode == bp::FileMode::Replace && fs::exists(target, ec)) {
+    // Backup: replace / merge / append all overwrite a user-owned file,
+    // so back up first if one exists. Drop-in mode never touches the
+    // canonical user file (luban owns the .d/ subfile by definition),
+    // so no backup needed even if the subfile pre-existed.
+    bool needs_backup = (spec.mode != bp::FileMode::DropIn) && fs::exists(target, ec);
+    if (needs_backup) {
         auto backups = backup_dir(generation_id);
         fs::create_directories(backups, ec);
         if (ec) {
@@ -173,7 +327,7 @@ std::expected<DeployedFile, std::string> deploy(const bp::FileSpec& spec,
 
     // Atomic content write. file_util::write_text_atomic uses tmp +
     // rename so we don't leave half-written files on disk.
-    if (!file_util::write_text_atomic(target, spec.content)) {
+    if (!file_util::write_text_atomic(target, final_bytes)) {
         return std::unexpected("write failed: " + target.string());
     }
     return out;

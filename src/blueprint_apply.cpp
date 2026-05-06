@@ -173,6 +173,40 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     int next_id = gen::highest_id() + 1;
     result.new_generation_id = next_id;
 
+    // ---- Preflight: meta.requires gating (v0.2.0, 议题 M (b) followup) ---
+    //
+    // Each name in spec.meta.requires_ must already appear in the current
+    // generation's applied_blueprints. Hard error otherwise — listing every
+    // missing dep + the exact `luban bp apply` line to fix it. We do NOT
+    // auto-recurse into deps; explicit beats clever for the layered
+    // foundation/cpp-toolchain story (see DESIGN line 1131-1132).
+    //
+    // No current generation = treat as empty applied set, which fails
+    // every requires entry but with the right error message.
+    if (!spec.meta.requires_.empty()) {
+        std::set<std::string> applied;
+        if (auto current_id = gen::get_current(); current_id) {
+            if (auto cur = gen::read(*current_id); cur) {
+                for (auto& name : cur->applied_blueprints) applied.insert(name);
+            }
+            // Read failure is treated as "no applied bps known" — same
+            // outcome as no current generation. The user gets a clear
+            // requires error rather than a cryptic IO failure.
+        }
+        std::vector<std::string> missing;
+        for (auto& req : spec.meta.requires_) {
+            if (!applied.contains(req)) missing.push_back(req);
+        }
+        if (!missing.empty()) {
+            std::string msg = "blueprint `" + spec.name +
+                              "` requires these unapplied blueprint(s):\n";
+            for (auto& m : missing) {
+                msg += "  - " + m + "\n      apply with:  luban bp apply " + m + "\n";
+            }
+            return std::unexpected(msg);
+        }
+    }
+
     auto next_gen = make_next_generation(next_id, spec.name);
 
     // ---- Tools ---------------------------------------------------------
@@ -436,7 +470,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
             ++result.files_deployed;
             continue;
         }
-        auto deployed = luban::file_deploy::deploy(fspec, next_id);
+        auto deployed = luban::file_deploy::deploy(fspec, next_id, spec.name);
         if (!deployed) {
             return std::unexpected("deploy file " + fspec.target_path + ": " +
                                    deployed.error());

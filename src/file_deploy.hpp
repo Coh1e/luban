@@ -1,5 +1,5 @@
-// `file_deploy` — materializes [files] blocks from a blueprint into the
-// user's filesystem. Two modes per DESIGN.md §11.4:
+// `file_deploy` — materializes [file."path"] blocks from a blueprint into
+// the user's filesystem. Four modes per DESIGN.md §11.4:
 //
 //   - replace: write the inline content to the target path verbatim;
 //     before writing, back up the existing file (if any) so rollback
@@ -9,6 +9,18 @@
 //     instead of ~/.gitconfig). The user retains ownership of the
 //     canonical file and is expected to [include] the drop-in. luban
 //     never reads or writes the canonical file in this mode.
+//
+//   - merge:   read existing JSON file (or {} if missing), apply the
+//     `content` payload as a JSON Merge Patch (RFC 7396), atomic write
+//     back. Use case: WT settings.json themes section without clobbering
+//     the rest of the file. Pre-existing file is backed up like replace
+//     mode. (v0.2.0)
+//
+//   - append:  bracket `content` in a luban marker block keyed by bp name
+//     (`# >>> luban:<bp> >>>` ... `# <<< luban:<bp> <<<`) and either
+//     replace an existing identically-keyed block in place, or append at
+//     end of file. Idempotent across re-applies. Pre-existing file is
+//     backed up. Use case: profile.ps1 multi-bp coordination. (v0.2.0)
 //
 // The deploy module is the boundary between blueprint intent and the
 // user's home dir. It expands "~/" via paths::home(), and it reports
@@ -45,18 +57,26 @@ struct DeployedFile {
 /// review concern, not a sandbox one (blueprints are user-authored).
 [[nodiscard]] std::filesystem::path expand_home(std::string_view raw);
 
-/// Deploy one [files] entry. `generation_id` keys the backup directory
-/// — `<state>/backups/<generation_id>/<base64-of-target>` — so rollback
-/// from any generation can find its origin file.
+/// Deploy one [file."path"] entry. `generation_id` keys the backup
+/// directory — `<state>/backups/<generation_id>/<base64-of-target>` — so
+/// rollback from any generation can find its origin file. `bp_name` is
+/// required for `Append` mode (used as the marker block key); empty is
+/// fine for other modes.
+///
+/// For Merge / Append, the snapshot stored is the **post-merge / post-
+/// append** content — i.e. what we actually wrote. That keeps
+/// blueprint_reconcile's rollback story uniform across modes.
 ///
 /// Side effect: also writes a content-addressed snapshot of `spec.content`
-/// at `<state>/file-store/<sha256>/content` (idempotent — same sha = same
+/// (or, for Merge / Append, of the *resulting* file content) at
+/// `<state>/file-store/<sha256>/content` (idempotent — same sha = same
 /// bytes, so collisions are no-ops). This snapshot is what
 /// `blueprint_reconcile` reads when rolling back to a generation that
 /// referenced a file the current generation no longer has — the original
 /// backup chain only preserves *prior* content, not *deployed* content.
 [[nodiscard]] std::expected<DeployedFile, std::string> deploy(
-    const luban::blueprint::FileSpec& spec, int generation_id);
+    const luban::blueprint::FileSpec& spec, int generation_id,
+    std::string_view bp_name = "");
 
 /// Restore the original from a backup. Used by generation::rollback.
 /// If `backup_path` is empty (no original existed at deploy time), the

@@ -12,6 +12,7 @@
 #include "blueprint.hpp"
 #include "doctest.h"
 #include "file_deploy.hpp"
+#include "json.hpp"
 #include "paths.hpp"
 
 namespace fs = std::filesystem;
@@ -185,4 +186,150 @@ TEST_CASE("restore removes target when no backup (no original existed)") {
     auto restored = fd::restore(*deployed);
     REQUIRE(restored.has_value());
     CHECK_FALSE(fs::exists(deployed->target_path));
+}
+
+// ---- merge mode (RFC 7396 JSON Merge Patch) -----------------------------
+
+TEST_CASE("deploy merge mode creates JSON file when target absent") {
+    Sandbox sb;
+    bp::FileSpec spec;
+    spec.target_path = "~/settings.json";
+    spec.content = R"({"theme": "dark", "fontSize": 14})";
+    spec.mode = bp::FileMode::Merge;
+
+    auto r = fd::deploy(spec, 1);
+    REQUIRE(r.has_value());
+    auto written = read_all(r->target_path);
+    CHECK(written.find("\"theme\"") != std::string::npos);
+    CHECK(written.find("\"dark\"") != std::string::npos);
+    CHECK(written.find("\"fontSize\"") != std::string::npos);
+    CHECK(written.find("14") != std::string::npos);
+    CHECK_FALSE(r->backup_path.has_value());  // no preexisting file
+}
+
+TEST_CASE("deploy merge mode preserves untouched keys + backs up target") {
+    Sandbox sb;
+    auto target = luban::paths::home() / "settings.json";
+    fs::create_directories(target.parent_path());
+    {
+        std::ofstream out(target);
+        out << R"({"theme": "light", "user": {"name": "alice"}, "extras": [1,2]})";
+    }
+
+    bp::FileSpec spec;
+    spec.target_path = "~/settings.json";
+    spec.content = R"({"theme": "dark", "user": {"shell": "zsh"}})";
+    spec.mode = bp::FileMode::Merge;
+
+    auto r = fd::deploy(spec, 7);
+    REQUIRE(r.has_value());
+    REQUIRE(r->backup_path.has_value());
+
+    auto merged = nlohmann::json::parse(read_all(r->target_path));
+    CHECK(merged["theme"].get<std::string>() == "dark");          // overwritten
+    CHECK(merged["user"]["name"].get<std::string>() == "alice");  // preserved
+    CHECK(merged["user"]["shell"].get<std::string>() == "zsh");   // added
+    CHECK(merged["extras"].is_array());                            // preserved
+    CHECK(merged["extras"].size() == 2);
+}
+
+TEST_CASE("deploy merge mode rejects invalid JSON content") {
+    Sandbox sb;
+    bp::FileSpec spec;
+    spec.target_path = "~/settings.json";
+    spec.content = "{not: valid json}";
+    spec.mode = bp::FileMode::Merge;
+
+    auto r = fd::deploy(spec, 1);
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().find("not valid JSON") != std::string::npos);
+}
+
+TEST_CASE("deploy merge mode null value removes key (RFC 7396)") {
+    Sandbox sb;
+    auto target = luban::paths::home() / "settings.json";
+    fs::create_directories(target.parent_path());
+    {
+        std::ofstream out(target);
+        out << R"({"keep": 1, "drop": 2})";
+    }
+
+    bp::FileSpec spec;
+    spec.target_path = "~/settings.json";
+    spec.content = R"({"drop": null, "added": 3})";
+    spec.mode = bp::FileMode::Merge;
+
+    auto r = fd::deploy(spec, 1);
+    REQUIRE(r.has_value());
+    auto out = nlohmann::json::parse(read_all(r->target_path));
+    CHECK(out["keep"].get<int>() == 1);
+    CHECK_FALSE(out.contains("drop"));
+    CHECK(out["added"].get<int>() == 3);
+}
+
+// ---- append mode (marker block) -----------------------------------------
+
+TEST_CASE("deploy append mode wraps content in luban marker block") {
+    Sandbox sb;
+    bp::FileSpec spec;
+    spec.target_path = "~/profile.ps1";
+    spec.content = "Set-Alias ll Get-ChildItem";
+    spec.mode = bp::FileMode::Append;
+
+    auto r = fd::deploy(spec, 1, "cli-tools");
+    REQUIRE(r.has_value());
+    auto out = read_all(r->target_path);
+    CHECK(out.find("# >>> luban:cli-tools >>>") != std::string::npos);
+    CHECK(out.find("Set-Alias ll Get-ChildItem") != std::string::npos);
+    CHECK(out.find("# <<< luban:cli-tools <<<") != std::string::npos);
+}
+
+TEST_CASE("deploy append mode replaces existing identically-keyed block in place") {
+    Sandbox sb;
+    auto target = luban::paths::home() / "profile.ps1";
+    fs::create_directories(target.parent_path());
+    {
+        std::ofstream out(target);
+        out << "$Env:STARSHIP_CONFIG = '~/.config/starship.toml'\n"
+            << "\n"
+            << "# >>> luban:cli-tools >>>\n"
+            << "OLD CONTENT\n"
+            << "# <<< luban:cli-tools <<<\n"
+            << "\n"
+            << "Set-Location $HOME\n";
+    }
+
+    bp::FileSpec spec;
+    spec.target_path = "~/profile.ps1";
+    spec.content = "NEW CONTENT";
+    spec.mode = bp::FileMode::Append;
+
+    auto r = fd::deploy(spec, 2, "cli-tools");
+    REQUIRE(r.has_value());
+    auto out = read_all(r->target_path);
+    CHECK(out.find("OLD CONTENT") == std::string::npos);
+    CHECK(out.find("NEW CONTENT") != std::string::npos);
+    // User content above + below the block must survive verbatim.
+    CHECK(out.find("$Env:STARSHIP_CONFIG") != std::string::npos);
+    CHECK(out.find("Set-Location $HOME") != std::string::npos);
+    // Exactly one open + close marker per bp.
+    auto count = [&](const std::string& s) {
+        size_t n = 0, pos = 0;
+        while ((pos = out.find(s, pos)) != std::string::npos) { ++n; pos += s.size(); }
+        return n;
+    };
+    CHECK(count("# >>> luban:cli-tools >>>") == 1);
+    CHECK(count("# <<< luban:cli-tools <<<") == 1);
+}
+
+TEST_CASE("deploy append mode requires bp_name") {
+    Sandbox sb;
+    bp::FileSpec spec;
+    spec.target_path = "~/profile.ps1";
+    spec.content = "x";
+    spec.mode = bp::FileMode::Append;
+
+    auto r = fd::deploy(spec, 1, "");
+    CHECK_FALSE(r.has_value());
+    CHECK(r.error().find("bp_name") != std::string::npos);
 }
