@@ -304,6 +304,17 @@ int run_apply(const cli::ParsedArgs& args) {
 
     luban::blueprint_apply::ApplyOptions opts;
     opts.dry_run = args.flags.count("dry-run") && args.flags.at("dry-run");
+    // bp_source_root = parent of the blueprints/ dir that holds source_path.
+    // post_install paths prefixed `bp:` resolve against this root, letting a
+    // bp ship a registration script alongside its blueprint without having
+    // to inject it into the upstream artifact (DESIGN §9.9).
+    if (!resolved->source_path.empty()) {
+        // source_path is `<root>/blueprints/<name>.toml` so two parents up
+        // gives the source root. parent_path() once strips the filename;
+        // parent_path() again strips the `blueprints` segment.
+        auto bp_root = resolved->source_path.parent_path().parent_path();
+        if (!bp_root.empty()) opts.bp_source_root = bp_root;
+    }
 
     auto result = luban::blueprint_apply::apply(resolved->spec, *lock, opts);
     if (!result) {

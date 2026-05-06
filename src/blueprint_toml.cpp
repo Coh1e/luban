@@ -137,6 +137,7 @@ void parse_tools(const ::toml::table* tools_tbl, ParseCtx& ctx) {
         }
 
         if (auto v = (*tool_tbl)["shim_dir"].value<std::string>()) tool.shim_dir = *v;
+        if (auto v = (*tool_tbl)["no_shim"].value<bool>())          tool.no_shim  = *v;
 
         // [[tool.X.platform]] inline blocks (manual mode).
         if (auto* platforms = (*tool_tbl)["platform"].as_array()) {

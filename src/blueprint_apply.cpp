@@ -54,29 +54,57 @@ namespace bp = luban::blueprint;
 namespace bpl = luban::blueprint_lock;
 namespace gen = luban::generation;
 
-/// Resolve a post_install script path to an absolute path inside the
-/// store_dir, with a traversal guard. Returns the absolute script path
-/// if valid, or unexpected with an error message describing why not.
+/// Resolve a post_install script path to an absolute path with a
+/// traversal guard.
 ///
-/// Two checks:
-///   1. After lexically normalizing `<store_dir>/<rel>`, the result must
-///      still start with `store_dir` (rejects "../../etc/passwd").
-///   2. The resolved path must exist as a regular file (rejects typos
-///      and missing scripts).
+/// Two roots possible:
+///   - default (no prefix): path is artifact-relative — script lives
+///     inside the extracted upstream archive (vcpkg's bootstrap-vcpkg.bat
+///     is the canonical case). Guard against escaping store_dir.
+///   - `bp:` prefix:        path is bp-source-relative — script lives in
+///     the bp source repo alongside the .toml/.lua blueprint file
+///     (Maple Mono font registration is the canonical case — upstream
+///     ships only .ttf files, the registration logic has to come from
+///     the bp). Guard against escaping bp_source_root. Errors loudly if
+///     bp_source_root is unset (programmatic callers without context).
+///
+/// In either case the resolved path must exist as a regular file
+/// (rejects typos and missing scripts).
 std::expected<fs::path, std::string> resolve_post_install(
-    const fs::path& store_dir, std::string_view rel) {
-    fs::path joined = store_dir / fs::path(std::string(rel));
+    const fs::path& store_dir, std::string_view rel,
+    const std::optional<fs::path>& bp_source_root) {
+    constexpr std::string_view kBpPrefix = "bp:";
+
+    fs::path root;
+    fs::path joined;
+    std::string display_rel(rel);
+
+    if (rel.starts_with(kBpPrefix)) {
+        if (!bp_source_root.has_value()) {
+            return std::unexpected(
+                "post_install `" + display_rel + "` uses `bp:` prefix but "
+                "bp_source_root is unset (only programmatic apply callers "
+                "hit this path; bp src apply sets it automatically)");
+        }
+        std::string_view tail = rel.substr(kBpPrefix.size());
+        root = *bp_source_root;
+        joined = root / fs::path(std::string(tail));
+    } else {
+        root = store_dir;
+        joined = root / fs::path(std::string(rel));
+    }
+
     fs::path normalized = joined.lexically_normal();
 
-    // Require the normalized path to be lexically inside store_dir.
+    // Require the normalized path to be lexically inside `root`.
     // lexically_relative returns something starting with ".." if it
     // escapes; guard that. Use string() rather than native() so the
     // comparison is portable across Windows wide vs POSIX narrow paths.
-    fs::path probe = normalized.lexically_relative(store_dir);
+    fs::path probe = normalized.lexically_relative(root);
     std::string probe_s = probe.string();
     if (probe_s.empty() || probe_s.rfind("..", 0) == 0) {
-        return std::unexpected("post_install path escapes artifact root: " +
-                               std::string(rel));
+        return std::unexpected("post_install path escapes its root: " +
+                               display_rel);
     }
 
     std::error_code ec;
@@ -274,7 +302,8 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         if (tool.post_install && !fetched->was_already_present) {
             log::infof("  post_install: {}", *tool.post_install);
             auto script = resolve_post_install(fetched->store_dir,
-                                               *tool.post_install);
+                                               *tool.post_install,
+                                               opts.bp_source_root);
             if (!script) {
                 return std::unexpected("post_install " + tool.name + ": " +
                                        script.error());
@@ -298,11 +327,30 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         // any additional entries land in shim_paths_secondary alongside
         // their bin_paths_rel_secondary so blueprint_reconcile can
         // delete or recreate every shim a tool installed.
+        //
+        // no_shim = true bypasses this entirely — used for "tools" that
+        // register themselves through non-PATH channels (fonts via
+        // HKCU\...\Fonts + AddFontResourceEx, etc).
         std::string primary_shim;
         std::string primary_bin_rel;
         std::vector<std::string> secondary_shims;
         std::vector<std::string> secondary_bin_rels;
         std::set<std::string> aliases_seen;
+
+        if (tool.no_shim) {
+            // Record the tool as fetched-but-not-shimmed so generation
+            // tracking stays consistent with non-shim tools (rollback
+            // still removes the store entry; just no .cmd to delete).
+            gen::ToolRecord rec;
+            rec.from_blueprint = spec.name;
+            rec.is_external = false;
+            rec.artifact_id = plat->artifact_id;
+            rec.store_dir = fetched->store_dir.string();
+            next_gen.tools[tool.name] = std::move(rec);
+            ++result.tools_fetched;
+            log::infof("  no_shim — registration handled by post_install");
+            continue;  // skip the rest of Step 4 + the trailing record-write
+        }
 
         // Single helper that handles one (absolute path inside store_dir)
         // shim target — used by both the explicit `shims` list and the

@@ -26,6 +26,8 @@
 #pragma once
 
 #include <expected>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 #include "blueprint.hpp"
@@ -37,6 +39,18 @@ struct ApplyOptions {
     /// If true, log what would happen but don't actually fetch / write.
     /// Useful for status preflight.
     bool dry_run = false;
+
+    /// Root of the bp source repo this blueprint came from (the dir that
+    /// contains `blueprints/`, `scripts/`, …). Used to resolve `bp:`
+    /// prefix on `[tool.X] post_install` paths so a bp can ship a
+    /// registration script alongside its blueprint files instead of
+    /// having to inject it into the upstream artifact.
+    ///
+    /// Empty / unset = `bp:` paths fail with a clear error. Programmatic
+    /// callers (tests, embedded apply paths) that don't go through
+    /// commands/blueprint.cpp can leave this empty if they don't need
+    /// `bp:`-style scripts.
+    std::optional<std::filesystem::path> bp_source_root;
 };
 
 struct ApplyResult {

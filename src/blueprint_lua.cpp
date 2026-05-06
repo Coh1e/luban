@@ -182,6 +182,12 @@ void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
         if (auto v = opt_str_field(L, tool_idx, "source"))  tool.source  = *v;
         if (auto v = opt_str_field(L, tool_idx, "version")) tool.version = *v;
         if (auto v = opt_str_field(L, tool_idx, "bin"))     tool.bin     = *v;
+        // no_shim — boolean, optional, default false. Read directly via
+        // lua_getfield since opt_str_field is string-only and a tiny
+        // helper for one bool field would be overkill.
+        lua_getfield(L, tool_idx, "no_shim");
+        if (lua_isboolean(L, -1)) tool.no_shim = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
 
         // platforms = { { target=, url=, sha256=, bin= }, ... }
         lua_getfield(L, tool_idx, "platforms");

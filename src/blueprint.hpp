@@ -119,6 +119,15 @@ struct ToolSpec {
     /// removes entries; the explicit list goes stale). `shim_dir =
     /// "bin"` is the right shape for that data.
     std::optional<std::string> shim_dir;
+
+    /// When true, apply does NOT create any PATH shim for this tool —
+    /// the artifact is fetched + extracted + post_install runs, but
+    /// nothing lands under `~/.local/bin/`. Use case: a "tool" that
+    /// isn't a CLI binary at all (fonts, fonts files, libraries that
+    /// register themselves through other channels — HKCU\Fonts +
+    /// AddFontResourceEx for Maple Mono is the canonical case). The
+    /// post_install hook does whatever registration is needed.
+    bool no_shim = false;
 };
 
 /// One `[config.X]` block: tool name + arbitrary nested config that

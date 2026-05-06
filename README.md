@@ -74,24 +74,47 @@ line — luban won't clobber a hand-rolled env.
 
 ## Quickstart
 
-```pwsh
-# 1. Register the foundation blueprint source (one-time)
-luban bp src add Coh1e/luban-bps --name main
+`install.ps1` already pre-applies `main/foundation` (git + ssh + lfs + gcm —
+true prereq for almost everything else, no prompt) and prompts for
+`main/cpp-toolchain`. After install:
 
-# 2. Build the workshop (toolchain + CLI utilities)
-luban bp apply main/cpp-base
-luban bp apply main/cli-base
+```pwsh
+# Optional extras the installer didn't apply for you
+luban bp apply main/cli-tools          # zoxide / starship / fd / ripgrep
 luban env --user                       # register HKCU PATH; new shells just work
 
-# 3. Create + build a project
+# Create + build a project
 luban new app hello && cd hello
 luban add fmt && luban build
 ```
 
 The luban binary embeds **zero blueprints**. The foundation set
-(`cpp-base` / `cli-base` / `git-base` / `onboarding`) lives in
+(`foundation` / `cpp-toolchain` / `cli-tools` / `onboarding`) lives in
 [Coh1e/luban-bps](https://github.com/Coh1e/luban-bps). Anyone can publish
 their own blueprint source repo and `luban bp src add` it.
+
+### Blueprint schema (v0.2.0)
+
+```toml
+schema = 1
+name = "my-bp"
+
+[tool.ripgrep]                          # one tool entry per binary you want on PATH
+source = "github:BurntSushi/ripgrep"
+
+[config.git]                            # render a config file via the git renderer
+userName = "alice"
+
+[file."~/.config/starship.toml"]        # drop a literal file
+mode = "merge"                          # replace | drop-in | merge | append
+content = '{"add_newline": false}'
+
+[meta]
+requires = ["main/foundation"]          # enforced — apply order is explicit
+```
+
+Singular keys (`tool` / `config` / `file`) — the v0.2.0 schema rename
+(议题 P) replaced the old plural form; old bps need to flip.
 
 ## Documentation
 

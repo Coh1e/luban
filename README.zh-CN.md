@@ -71,32 +71,56 @@ msvc captures、PATH entries）只有在指向 luban 自己 dir 内时才会被 
 
 ## 快速上手
 
-```pwsh
-# 1. 注册基础 bp 源（一次性）
-luban bp src add Coh1e/luban-bps --name main
+`install.ps1` 装 luban 时已经自动 `bp src add Coh1e/luban-bps` + 预装
+`main/foundation`（git + ssh + lfs + gcm — 几乎其他每张图纸的真前置，无 prompt），
+并询问是否装 `main/cpp-toolchain`。装完后：
 
-# 2. 搭工坊（工具链 + CLI 利器）
-luban bp apply main/cpp-base
-luban bp apply main/cli-base
+```pwsh
+# 可选额外 bp（installer 不预装的）
+luban bp apply main/cli-tools          # zoxide / starship / fd / ripgrep
 luban env --user                       # 注册 HKCU PATH；开新终端立即生效
 
-# 3. 创建 + 构建项目
+# 创建 + 构建项目
 luban new app hello && cd hello
 luban add fmt && luban build
 ```
 
-luban 二进制**零内嵌 bp**。基础 4 件（`cpp-base` / `cli-base` / `git-base`
-/ `onboarding`）住在外部 [Coh1e/luban-bps](https://github.com/Coh1e/luban-bps)。
-任何人都能发自己的 blueprint source repo 然后 `luban bp src add` 注册。
+luban 二进制**零内嵌 bp**。基础 4 件（`foundation` / `cpp-toolchain` /
+`cli-tools` / `onboarding`）住在外部
+[Coh1e/luban-bps](https://github.com/Coh1e/luban-bps)。任何人都能发自己的
+blueprint source repo 然后 `luban bp src add` 注册。
+
+### 图纸 schema（v0.2.0）
+
+```toml
+schema = 1
+name = "my-bp"
+
+[tool.ripgrep]                          # 一个 tool 一个二进制（落到 PATH）
+source = "github:BurntSushi/ripgrep"
+
+[config.git]                            # 通过 git renderer 渲染 dotfile
+userName = "alice"
+
+[file."~/.config/starship.toml"]        # 直接落一个文件
+mode = "merge"                          # replace | drop-in | merge | append
+content = '{"add_newline": false}'
+
+[meta]
+requires = ["main/foundation"]          # 强制——apply 顺序显式可读
+```
+
+单数 key（`tool` / `config` / `file`）—— v0.2.0 schema rename（议题 P）
+把旧的复数形式弃了；老 bp 需要切到单数。
 
 ## 它是什么
 
 C++ 在 Windows 上原本要装的散件（toolchain / cmake / ninja / clangd / vcpkg /
 git + 一堆 cmake 胶水代码）合在一起几天的活，luban 把它做成 **多层叠图纸**：
 
-- **承重墙**：`main/cpp-base` 装编译器 / cmake / vcpkg / 等
-- **工作台**：`main/cli-base` 装日常 CLI 利器（zoxide / starship / fd / ripgrep）+ dotfiles
-- **装修**：用户写自己的 `~/.config/luban/blueprints/dev.lua` 加私有工具与配置
+- **承重墙**：`main/cpp-toolchain` 装编译器 / cmake / vcpkg / 等（依赖 `main/foundation`）
+- **工作台**：`main/cli-tools` 装日常 CLI 利器（zoxide / starship / fd / ripgrep）+ dotfiles
+- **装修**：用户写自己的 bp source repo 加私有工具与配置（onboarding 风格）
 
 之后每个项目里：
 
