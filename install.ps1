@@ -112,10 +112,22 @@ function Download-File($url, $dest) {
             #       don't burn the whole --max-time on a stuck connect.
             # --max-time bumped from 300 to 900 — slow VN networks need it for the
             #       6 MB MinGW asset.
-            & $curlExe -fSL --connect-timeout 30 --max-time 900 `
-                -C - -A 'luban-installer' -o $dest $url
-            if ($LASTEXITCODE -eq 0) { return }
-            $lastError = "curl exit $LASTEXITCODE"
+            # -#: simple bar instead of curl's default verbose meter.
+            #
+            # Use Start-Process -NoNewWindow so curl's stderr writes straight to
+            # the inherited console TTY. With `& $curl` PowerShell intercepts
+            # stderr and only flushes on exit, which makes the live progress
+            # appear "all at once at the end" — bad UX and the user noticed.
+            $proc = Start-Process -FilePath $curlExe -NoNewWindow -Wait -PassThru `
+                -ArgumentList @(
+                    '-fSL', '-#',
+                    '--connect-timeout', '30', '--max-time', '900',
+                    '-C', '-',
+                    '-A', 'luban-installer',
+                    '-o', $dest, $url
+                )
+            if ($proc.ExitCode -eq 0) { return }
+            $lastError = "curl exit $($proc.ExitCode)"
         } else {
             try {
                 Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900

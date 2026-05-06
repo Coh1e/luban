@@ -84,7 +84,9 @@ int extract_thread_count() {
 // regular-file entries. Workers then handle the actual decompression in
 // parallel — each opens its own mz_zip_archive on the same archive path
 // (miniz's reader handles aren't thread-safe when shared).
-std::expected<void, Error> extract_to(const fs::path& archive_path, const fs::path& dest_root) {
+std::expected<void, Error> extract_to(const fs::path& archive_path,
+                                      const fs::path& dest_root,
+                                      const ProgressCb& on_progress) {
     mz_zip_archive zip{};
     std::string apath = archive_path.string();
 
@@ -143,6 +145,7 @@ std::expected<void, Error> extract_to(const fs::path& archive_path, const fs::pa
             return std::unexpected(Error{
                 ErrorKind::Corrupt, "miniz: re-open failed: " + apath});
         }
+        size_t done_st = 0;
         for (auto& it : items) {
             if (!mz_zip_reader_extract_to_file(&z, it.idx, it.out_path.c_str(), 0)) {
                 mz_zip_reader_end(&z);
@@ -150,15 +153,19 @@ std::expected<void, Error> extract_to(const fs::path& archive_path, const fs::pa
                     ErrorKind::Io,
                     "miniz: extract_to_file failed for " + it.name + " → " + it.out_path});
             }
+            ++done_st;
+            if (on_progress) on_progress(done_st, items.size());
         }
         mz_zip_reader_end(&z);
         return {};
     }
 
     std::atomic<size_t> next_idx{0};
+    std::atomic<size_t> done_count{0};
     std::atomic<bool> aborted{false};
     std::mutex err_mu;
     std::optional<Error> first_err;
+    const size_t total_items = items.size();
 
     auto worker = [&]() {
         mz_zip_archive z{};
@@ -181,6 +188,11 @@ std::expected<void, Error> extract_to(const fs::path& archive_path, const fs::pa
                 aborted = true;
                 break;
             }
+            // Progress fires from any worker; cb is responsible for its
+            // own thread-safety + frame throttling. Cheap to call when
+            // disabled (empty std::function bool-test).
+            size_t d = done_count.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (on_progress) on_progress(d, total_items);
         }
         mz_zip_reader_end(&z);
     };
@@ -231,7 +243,9 @@ void flatten_single_wrapper(const fs::path& dir) {
 
 }  // namespace
 
-std::expected<void, Error> extract(const fs::path& archive_path, const fs::path& dest_dir) {
+std::expected<void, Error> extract(const fs::path& archive_path,
+                                   const fs::path& dest_dir,
+                                   const ProgressCb& on_progress) {
     std::error_code ec;
     if (!fs::exists(archive_path, ec)) {
         return std::unexpected(Error{ErrorKind::Io, "archive not found: " + archive_path.string()});
@@ -272,7 +286,7 @@ std::expected<void, Error> extract(const fs::path& archive_path, const fs::path&
     if (fs::exists(staging, ec)) fs::remove_all(staging, ec);
     fs::create_directories(staging, ec);
 
-    if (auto rc = extract_to(archive_path, staging); !rc) {
+    if (auto rc = extract_to(archive_path, staging, on_progress); !rc) {
         fs::remove_all(staging, ec);
         return std::unexpected(rc.error());
     }
