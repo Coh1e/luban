@@ -60,6 +60,16 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
                                               std::string_view sha256,
                                               std::string_view bin,
                                               const FetchOptions& opts) {
+    // Empty artifact_id used to silently degrade `final_dir` to the store
+    // root and `archive_path` to literally `.archive` — a stale .lock
+    // produced by an early resolver bug exhibited exactly this. Reject
+    // upfront with a hint to re-resolve.
+    if (artifact_id.empty()) {
+        return std::unexpected(
+            "artifact_id is empty (stale lock from a buggy resolver). "
+            "Run `luban bp apply --update <bp>` to force re-resolve, or "
+            "delete the .lock file next to the blueprint and retry.");
+    }
     fs::path final_dir = store_path(artifact_id);
     if (is_present(artifact_id)) {
         log::infof("  cached: {}", final_dir.string());
@@ -118,12 +128,16 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
                                tmp.string() + ": " + ec.message());
     }
 
+    auto t_extract = std::chrono::steady_clock::now();
     auto extract = archive::extract(archive_path, tmp);
     if (!extract) {
         fs::remove_all(tmp, ec);
         return std::unexpected("extract failed (archive=" + archive_path.string() +
                                "): " + extract.error().message);
     }
+    auto dt_extract = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t_extract).count();
+    log::infof("  extracted in {:.1f}s", dt_extract);
 
     // Step 3: marker. Records what we put there for future debugging /
     // GC / version reconciliation. Format is JSON for jq-friendliness.

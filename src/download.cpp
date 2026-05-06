@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <functional>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -77,7 +78,12 @@ struct Progress {
     Progress(std::string lbl, int64_t total_bytes) : label(std::move(lbl)), total(total_bytes) {
         t0 = std::chrono::steady_clock::now();
         last = t0;
-        enabled = _isatty(_fileno(stderr)) && std::getenv("LUBAN_NO_PROGRESS") == nullptr;
+        // TTY by default; LUBAN_PROGRESS=1 forces on (CI / wrapped shells
+        // that swallow isatty); LUBAN_NO_PROGRESS=1 forces off.
+        bool tty = _isatty(_fileno(stderr));
+        bool force_on  = std::getenv("LUBAN_PROGRESS") != nullptr;
+        bool force_off = std::getenv("LUBAN_NO_PROGRESS") != nullptr;
+        enabled = (tty || force_on) && !force_off;
     }
 
     static std::string format_bytes(int64_t n) {
@@ -388,10 +394,15 @@ std::optional<HeadInfo> head_info(const std::string& url, int timeout_seconds) {
 // write it directly into `dest` at offset `lo`. Each call creates its own
 // WinHttp + file handles so it's safe to run from multiple threads.
 //
+// `on_bytes`, when non-empty, is called after each successful WriteFile
+// with the number of bytes just written. Used by download_chunked to
+// drive a shared Progress bar across N worker threads.
+//
 // Returns the number of bytes actually written, or an error.
 std::expected<int64_t, Error> download_range_to_file(
     const std::string& url, const fs::path& dest,
-    int64_t lo, int64_t hi, int timeout_seconds)
+    int64_t lo, int64_t hi, int timeout_seconds,
+    const std::function<void(size_t)>& on_bytes)
 {
     auto p = parse_url(url);
     if (!p) return std::unexpected(Error{ErrorKind::Network, "invalid URL: " + url});
@@ -486,6 +497,7 @@ std::expected<int64_t, Error> download_range_to_file(
             return std::unexpected(Error{ErrorKind::Io, "WriteFile (chunk) failed"});
         }
         written += wrote;
+        if (on_bytes) on_bytes(static_cast<size_t>(wrote));
     }
     CloseHandle(fh);
     return written;
@@ -538,17 +550,28 @@ std::expected<int64_t, Error> download_chunked(
     threads.reserve(n);
     std::atomic<int64_t> bytes_done{0};
 
-    log::stepf("chunked download: {} ({}, {} threads × ~{} MiB)",
-               label, url, n, (per + 1024 * 1024 - 1) / (1024 * 1024));
+    log::infof("  chunked download: {} threads × ~{} MiB",
+               n, (per + 1024 * 1024 - 1) / (1024 * 1024));
+
+    // Shared live progress: each worker thread reports bytes written via
+    // on_bytes; a mutex serializes Progress::update calls (which throttles
+    // its own re-render to 0.1 s, so contention is bounded).
+    Progress prog(label, total);
+    std::mutex prog_m;
+    auto on_bytes = [&](size_t k) {
+        std::lock_guard<std::mutex> g(prog_m);
+        prog.update(k);
+    };
 
     for (int i = 0; i < n; ++i) {
         threads.emplace_back([&, i] {
             results[i] = download_range_to_file(url, dest, ranges[i].lo, ranges[i].hi,
-                                                timeout_seconds);
+                                                timeout_seconds, on_bytes);
             if (results[i].has_value()) bytes_done.fetch_add(*results[i]);
         });
     }
     for (auto& t : threads) t.join();
+    prog.finish();
 
     int64_t total_written = 0;
     for (int i = 0; i < n; ++i) {
@@ -595,11 +618,21 @@ std::expected<hash::HashSpec, Error> verify_and_promote(
     if (precomputed_sha256_hex) {
         sha256_hex = *precomputed_sha256_hex;
     } else {
+        // Re-read pass — only the chunked path lands here. Show a status
+        // line because for ~200 MB artifacts this is 1-2 s of dead air
+        // after download finishes.
+        std::error_code sz_ec;
+        auto sz = fs::file_size(tmp, sz_ec);
+        log::infof("  verifying SHA256 ({} MiB)...", sz_ec ? 0 : sz / (1024 * 1024));
+        auto t0 = std::chrono::steady_clock::now();
         auto sha = hash::hash_file(tmp, hash::Algorithm::Sha256);
+        auto dt = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t0).count();
         if (!sha) {
             fs::remove(tmp, ec);
             return std::unexpected(Error{ErrorKind::Io, "post-download hash_file failed"});
         }
+        log::infof("  SHA256 verified in {:.1f}s", dt);
         sha256_hex = sha->hex;
     }
 
@@ -733,6 +766,16 @@ std::expected<int64_t, Error> do_request(
 std::expected<DownloadResult, Error> download(
     const std::string& url_in, const fs::path& dest, const DownloadOptions& opts) {
     const std::string url = apply_mirror(url_in);
+    auto t_start = std::chrono::steady_clock::now();
+    auto summary = [&](int64_t bytes) {
+        double dt = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - t_start).count();
+        if (dt < 1e-3) dt = 1e-3;
+        double rate = static_cast<double>(bytes) / dt;
+        log::okf("  ✓ downloaded {} in {:.1f}s ({}/s)",
+                 Progress::format_bytes(bytes), dt,
+                 Progress::format_bytes(static_cast<int64_t>(rate)));
+    };
 #ifdef _WIN32
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
@@ -788,6 +831,7 @@ std::expected<DownloadResult, Error> download(
             // Slight cost (~0.5s per 100 MB on SSD), only correct option.
             auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
             if (!promoted) return std::unexpected(promoted.error());
+            summary(*rc);
             return DownloadResult{*promoted, *rc};
         }
     }
@@ -854,6 +898,7 @@ std::expected<DownloadResult, Error> download(
         auto promoted = verify_and_promote(
             tmp, dest, opts.expected_hash, url, actual_sha);
         if (!promoted) return std::unexpected(promoted.error());
+        summary(*rc);
         return DownloadResult{*promoted, *rc};
     }
     return std::unexpected(last_err);
@@ -922,6 +967,7 @@ std::expected<DownloadResult, Error> download(
         // by re-reading. Future: parallel POSIX StreamingSha256 via EVP.
         auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
         if (!promoted) return std::unexpected(promoted.error());
+        summary(*rc);
         return DownloadResult{*promoted, *rc};
     }
     return std::unexpected(last_err);

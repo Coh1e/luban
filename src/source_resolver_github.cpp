@@ -40,6 +40,7 @@
 #include "hash.hpp"
 #include "paths.hpp"
 #include "platform.hpp"
+#include "store.hpp"
 
 namespace luban::source_resolver {
 
@@ -203,7 +204,6 @@ std::expected<bpl::LockedTool, std::string> resolve_github_impl(
         bpl::LockedPlatform lp;
         lp.url = zip_url;
         lp.bin = default_bin_name(spec, target);
-        lp.artifact_id = "";
 
         // No digest path — source archives never advertise sha256. Always
         // download to hash. This is bigger than a release asset (full
@@ -221,6 +221,8 @@ std::expected<bpl::LockedTool, std::string> resolve_github_impl(
         }
         lp.sha256 = "sha256:" + dl->sha256.hex;
         fs::remove(tmp, ec);
+        lp.artifact_id = luban::store::compute_artifact_id(
+            spec.name, out.version, target, lp.sha256);
 
         out.platforms.emplace(target, std::move(lp));
         return out;
@@ -273,7 +275,6 @@ std::expected<bpl::LockedTool, std::string> resolve_github_impl(
     bpl::LockedPlatform lp;
     lp.url = best_url;
     lp.bin = default_bin_name(spec, target);
-    lp.artifact_id = "";  // store will fill on first fetch
 
     if (!best_digest.empty()) {
         // Fast path: GitHub gave us the digest. No download needed.
@@ -297,6 +298,15 @@ std::expected<bpl::LockedTool, std::string> resolve_github_impl(
         lp.sha256 = "sha256:" + dl->sha256.hex;
         fs::remove(tmp, ec);
     }
+
+    // Compute artifact_id NOW that sha256 is final. Earlier comment
+    // ("store will fill on first fetch") was aspirational — store::fetch
+    // takes artifact_id by value and uses it as-is, so writing it empty
+    // resulted in `<store>/.archive` cache file + final_dir == store root,
+    // which then made fs::rename fail with "system cannot find the path
+    // specified". Compute here so the lock is self-contained.
+    lp.artifact_id = luban::store::compute_artifact_id(
+        spec.name, out.version, target, lp.sha256);
 
     out.platforms.emplace(target, std::move(lp));
     return out;
