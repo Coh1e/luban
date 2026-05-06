@@ -69,18 +69,52 @@ bool contains_ci(std::string_view hay, std::string_view needle) {
 // to that target. Negative-scoring substrings let us strongly disqualify
 // "linux" assets when looking for windows (and vice-versa).
 
+// Cheap "OS-token in filename" detector used by all three scorers.
+// We tested looser substring matches like contains_ci(name, "win") and
+// contains_ci(name, "mac") and they collide with arbitrary release
+// names (`darwin` contains "win", `macroscope-1.0.zip` contains "mac"),
+// so we anchor on a separator on either side: '-', '_', '.', '/', or
+// EOL. Result: `ninja-win.zip` and `ninja-mac.zip` no longer score
+// identically as we head into a windows-x64 host search.
+bool has_os_token(std::string_view name, std::initializer_list<std::string_view> tokens) {
+    auto sep = [](char c) {
+        return c == '-' || c == '_' || c == '.' || c == '/';
+    };
+    std::string lower(name);
+    for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (auto t : tokens) {
+        std::string needle(t);
+        for (auto& c : needle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        size_t pos = 0;
+        while ((pos = lower.find(needle, pos)) != std::string::npos) {
+            bool left  = (pos == 0)                || sep(lower[pos - 1]);
+            bool right = (pos + needle.size() >= lower.size())
+                       || sep(lower[pos + needle.size()]);
+            if (left && right) return true;
+            ++pos;
+        }
+    }
+    return false;
+}
+
 int score_for_windows_x64(std::string_view name) {
     int s = 0;
     if (contains_ci(name, "x86_64") || contains_ci(name, "amd64") ||
         contains_ci(name, "x64") || contains_ci(name, "win64")) s += 5;
+    // Windows OS tokens — accept "windows" / "msvc" / "pc-windows"
+    // as substring (they're long enough to be unambiguous), plus
+    // anchored "win" so `ninja-win.zip` scores correctly without
+    // also rewarding `darwin`.
     if (contains_ci(name, "windows") || contains_ci(name, "msvc") ||
-        contains_ci(name, "pc-windows")) s += 5;
+        contains_ci(name, "pc-windows") ||
+        has_os_token(name, {"win"})) s += 5;
     if (contains_ci(name, ".zip")) s += 2;
     if (contains_ci(name, "musl")) s -= 5;
     if (contains_ci(name, "arm64") || contains_ci(name, "aarch64") ||
         contains_ci(name, "armv7")) s -= 10;
     if (contains_ci(name, "darwin") || contains_ci(name, "apple") ||
-        contains_ci(name, "macos") || contains_ci(name, "osx")) s -= 10;
+        contains_ci(name, "macos") || contains_ci(name, "osx") ||
+        has_os_token(name, {"mac"})) s -= 10;
     if (contains_ci(name, "linux") && !contains_ci(name, "windows") &&
         !contains_ci(name, "msvc")) s -= 10;
     return s;
@@ -93,8 +127,10 @@ int score_for_linux_x64(std::string_view name) {
     if (contains_ci(name, "linux")) s += 5;
     if (contains_ci(name, ".tar.gz") || contains_ci(name, ".tgz")) s += 2;
     if (contains_ci(name, "unknown-linux-gnu")) s += 1;
-    if (contains_ci(name, "windows") || contains_ci(name, "msvc")) s -= 10;
-    if (contains_ci(name, "darwin") || contains_ci(name, "macos")) s -= 10;
+    if (contains_ci(name, "windows") || contains_ci(name, "msvc") ||
+        has_os_token(name, {"win"})) s -= 10;
+    if (contains_ci(name, "darwin") || contains_ci(name, "macos") ||
+        has_os_token(name, {"mac"})) s -= 10;
     if (contains_ci(name, "arm64") || contains_ci(name, "aarch64")) s -= 10;
     return s;
 }
@@ -102,7 +138,8 @@ int score_for_linux_x64(std::string_view name) {
 int score_for_macos(std::string_view name, bool arm) {
     int s = 0;
     if (contains_ci(name, "darwin") || contains_ci(name, "apple") ||
-        contains_ci(name, "macos") || contains_ci(name, "osx")) s += 5;
+        contains_ci(name, "macos") || contains_ci(name, "osx") ||
+        has_os_token(name, {"mac"})) s += 5;
     if (arm) {
         if (contains_ci(name, "arm64") || contains_ci(name, "aarch64")) s += 5;
         if (contains_ci(name, "x86_64") && !contains_ci(name, "arm")) s -= 2;
@@ -111,7 +148,8 @@ int score_for_macos(std::string_view name, bool arm) {
         if (contains_ci(name, "arm64") || contains_ci(name, "aarch64")) s -= 5;
     }
     if (contains_ci(name, ".tar.gz") || contains_ci(name, ".zip")) s += 2;
-    if (contains_ci(name, "windows") || contains_ci(name, "msvc")) s -= 10;
+    if (contains_ci(name, "windows") || contains_ci(name, "msvc") ||
+        has_os_token(name, {"win"})) s -= 10;
     if (contains_ci(name, "linux")) s -= 10;
     return s;
 }
