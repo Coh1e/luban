@@ -277,6 +277,90 @@ A new machine: `irm install.ps1 | iex` → installer auto-applies foundation
 + prompts cpp-toolchain → `luban bp apply main/cli-tools main/fonts me/onboarding`
 and you're back. ~3 minutes if the network behaves.
 
+#### 8. PowerShell modules — `pwsh-module:` source scheme (v0.4.1+)
+
+Tools that ship as PowerShell modules only (PSReadLine, PSFzf, posh-git,
+…) get a first-class scheme. The .nupkg is just a zip; luban's existing
+extract handles it. The bp ships a `post_install` script that copies
+the module files into `~/Documents/PowerShell/Modules/<Name>/<Version>/`
+where pwsh's `$PSModulePath` auto-discovers them.
+
+```toml
+[tool.psreadline]
+source = "pwsh-module:PSReadLine"
+version = "2.4.0"           # required (auto-latest = v0.4.x followup)
+no_shim = true              # PowerShell modules go to PSModulePath, not PATH
+bin = "PSReadLine.psd1"
+post_install = "bp:scripts/install-pwsh-module.ps1"
+```
+
+Working example: `Coh1e/luban-bps/blueprints/pwsh-modules.toml` +
+`scripts/install-pwsh-module.ps1`. The script is generic — reads name +
+version from the `.psd1` manifest, so the same script works for any
+module. Per-user, no UAC.
+
+#### 9. Lua bps — `register_renderer` / `register_resolver` (v0.4.0 / v0.4.2)
+
+When you need a config renderer that isn't one of the 5 built-ins
+(`git` / `bat` / `fastfetch` / `yazi` / `delta`), or a source scheme
+that isn't `github:` / `pwsh-module:`, write the bp in Lua. Tier 1
+(DESIGN §9.9) lets a bp declare both inline:
+
+```lua
+-- onboarding.lua
+
+-- Register a custom renderer for [config.starship]
+luban.register_renderer("starship", {
+  target_path = function(cfg, ctx)
+    return ctx.xdg_config .. "/starship.toml"
+  end,
+  render = function(cfg, ctx)
+    return string.format(
+      "add_newline = %s\ncommand_timeout = %d\n",
+      tostring(cfg.add_newline or false),
+      cfg.command_timeout or 1000)
+  end,
+})
+
+-- Register a custom source scheme `emsdk:` for emscripten releases
+-- (hosted on Google Storage, not GitHub).
+luban.register_resolver("emsdk", function(spec)
+  return {
+    url = string.format(
+      "https://storage.googleapis.com/webassembly/emscripten-releases-builds/win/%s/wasm-binaries.zip",
+      spec.version),
+    sha256 = "sha256:<one-time-pin>",
+    bin = "emscripten/emcc.bat",
+  }
+end)
+
+return {
+  schema = 1,
+  name = "onboarding",
+  tool = {
+    emscripten = { source = "emsdk", version = "1724b50443d92e23ef2a56abf0dc501206839cef" },
+  },
+  config = {
+    starship = { add_newline = false, command_timeout = 500 },  -- → custom renderer above
+  },
+}
+```
+
+What happens at apply:
+1. luban parses the bp twice — first via a fresh engine for spec
+   extraction, then via a long-lived engine where `register_*`
+   side effects land in two registries.
+2. Lock resolution consults the resolver registry FIRST (so `emsdk:`
+   fires the bp's Lua fn, not a "unknown scheme" error).
+3. Render phase consults the renderer registry FIRST (so
+   `[config.starship]` fires the bp's renderer fn, not the embedded
+   builtin fallback).
+
+Both registries are per-apply scope; nothing leaks between bp applies.
+TOML bps can't `register_*` (they have no Lua) but CAN `[config.X]` /
+`source = "<scheme>:..."` against schemes / renderers a previously-
+applied Lua bp registered (DESIGN §9.9 "同一注册表 / 无双码路径").
+
 ## Documentation
 
 - **Design** (decided architecture) → [`docs/DESIGN.md`](./docs/DESIGN.md)

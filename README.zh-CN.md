@@ -269,6 +269,80 @@ luban bp apply me/onboarding
 prompt cpp-toolchain → `luban bp apply main/cli-tools main/fonts me/onboarding`
 就回来了。网络给力的话 ~3 分钟。
 
+#### 8. PowerShell 模块 — `pwsh-module:` source scheme（v0.4.1+）
+
+只发 PowerShell 模块的工具（PSReadLine / PSFzf / posh-git 等）有专门
+scheme。.nupkg 本身就是 zip，luban 现有的 extract 直接处理。配套
+`post_install` 脚本把模块文件拷到 `~/Documents/PowerShell/Modules/<Name>/<Version>/`
+让 pwsh `$PSModulePath` 自动发现。
+
+```toml
+[tool.psreadline]
+source = "pwsh-module:PSReadLine"
+version = "2.4.0"           # 必填（auto-latest 是 v0.4.x 后续）
+no_shim = true              # 模块走 PSModulePath 不走 PATH
+bin = "PSReadLine.psd1"
+post_install = "bp:scripts/install-pwsh-module.ps1"
+```
+
+实际例子：`Coh1e/luban-bps/blueprints/pwsh-modules.toml` +
+`scripts/install-pwsh-module.ps1`。脚本通用——从 .psd1 manifest 读
+名字 + 版本，同一脚本处理所有模块。Per-user，零 UAC。
+
+#### 9. Lua bp — `register_renderer` / `register_resolver`（v0.4.0 / v0.4.2）
+
+需要内置 5 个之外的 config renderer（`git`/`bat`/`fastfetch`/`yazi`/`delta`），
+或 `github:` / `pwsh-module:` 之外的 source scheme，写 Lua bp。Tier 1
+（DESIGN §9.9）让 bp inline 注册两者：
+
+```lua
+-- onboarding.lua
+
+-- 注册 [config.starship] 的自定义 renderer
+luban.register_renderer("starship", {
+  target_path = function(cfg, ctx)
+    return ctx.xdg_config .. "/starship.toml"
+  end,
+  render = function(cfg, ctx)
+    return string.format(
+      "add_newline = %s\ncommand_timeout = %d\n",
+      tostring(cfg.add_newline or false),
+      cfg.command_timeout or 1000)
+  end,
+})
+
+-- 注册 `emsdk:` source scheme（emscripten 在 Google Storage，不是 GitHub）
+luban.register_resolver("emsdk", function(spec)
+  return {
+    url = string.format(
+      "https://storage.googleapis.com/webassembly/emscripten-releases-builds/win/%s/wasm-binaries.zip",
+      spec.version),
+    sha256 = "sha256:<one-time-pin>",
+    bin = "emscripten/emcc.bat",
+  }
+end)
+
+return {
+  schema = 1,
+  name = "onboarding",
+  tool = {
+    emscripten = { source = "emsdk", version = "1724b50443d92e23ef2a56abf0dc501206839cef" },
+  },
+  config = {
+    starship = { add_newline = false, command_timeout = 500 },  -- → 上面那个 renderer
+  },
+}
+```
+
+Apply 时：
+1. luban 解析 bp **两次** — 第一次拿 spec，第二次在长寿命 engine 里跑 `register_*` 副作用（refs 落到两个 registry）
+2. Lock 解析**先**查 resolver registry（`emsdk:` 命中 bp 的 Lua fn，不 fall through 报"未知 scheme"）
+3. Render 阶段**先**查 renderer registry（`[config.starship]` 命中 bp 的 fn，不走 builtin）
+
+两个 registry 都是 per-apply 范围，bp 之间不串。TOML bp 不能 `register_*`
+（没 Lua），但**能**引用前一个 Lua bp 注册过的 scheme / renderer
+（DESIGN §9.9 "同一注册表 / 无双码路径"）。
+
 ## 它是什么
 
 C++ 在 Windows 上原本要装的散件（toolchain / cmake / ninja / clangd / vcpkg /

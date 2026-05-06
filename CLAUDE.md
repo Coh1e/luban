@@ -307,12 +307,18 @@ CI verifies invariant 7 on both flavors:
 | `paths::{data,config,cache,state}_dir()` | `src/paths.cpp` | XDG-resolved 4 homes |
 | `paths::xdg_bin_home()` | `src/paths.cpp` | `~/.local/bin/`（不变量 5）|
 | `proc::run(cmd, cwd, env_overrides)` | `src/proc.cpp` | spawn with env merge |
-| `download::download(url, dest, opts)` | `src/download.cpp` | HTTPS GET + SHA |
-| `archive::extract(zip, dest)` | `src/archive.cpp` | ZIP w/ traversal guard |
+| `download::download(url, dest, opts)` | `src/download.cpp` | HTTPS GET + SHA（Win32 走 curl_subprocess.cpp，POSIX 走 libcurl）|
+| `curl_subprocess::download_to_file / fetch_text / head_content_length` | `src/curl_subprocess.cpp` | Win32 only — drives curl.exe via CreateProcessW，polling thread feeds `progress::Bar` |
+| `progress::Bar` | `src/progress.{hpp,cpp}` | 统一进度 UI：`↓ fetch / ↻ extract / ✓` glyph + Bytes/Items unit + TTY auto-detect + LUBAN_PROGRESS env |
+| `archive::extract(zip, dest, on_progress)` | `src/archive.cpp` | ZIP w/ traversal guard + 可选 progress cb |
 | `hash::verify_file(path, spec)` | `src/hash.cpp` | SHA256 校验 |
 | `env_snapshot::apply_to(env)` | `src/env_snapshot.cpp` | PATH + persistent_env + injected_env overlay |
 | `luban_cmake_gen::regenerate_in_project(dir, targets)` | `src/luban_cmake_gen.cpp` | 重渲项目 `luban.cmake` |
 | `vcpkg_manifest::{add,remove,save}` | `src/vcpkg_manifest.cpp` | 安全编辑 `vcpkg.json` |
-| `lua_engine::Engine::eval_*` | `src/lua_engine.cpp` | Sandboxed Lua VM (v1 scaffold) |
-| `config_renderer::render(name, cfg, ctx)` | `src/config_renderer.cpp` | config 块 → renderer 调度（5 个内置） |
+| `lua_engine::Engine::eval_* / attach_registry / attach_resolver_registry` | `src/lua_engine.cpp` | Sandboxed Lua VM；可挂接两个 registry 让 `luban.register_*` 生效 |
+| `renderer_registry::RendererRegistry` | `src/renderer_registry.{hpp,cpp}` | name → (lua_State*, target_path_ref, render_ref)；per-apply 寿命 |
+| `resolver_registry::ResolverRegistry` | `src/resolver_registry.{hpp,cpp}` | scheme → (lua_State*, fn_ref)；per-apply 寿命 |
+| `config_renderer::render / render_with_registry` | `src/config_renderer.cpp` | config 块 → renderer 调度；with_registry 先查 bp 注册的，再 fall through builtin |
+| `source_resolver::resolve / resolve_with_registry` | `src/source_resolver.cpp` | source 块 → resolver 调度；同形 (registry-first → C++ scheme dispatch) |
+| `blueprint_lua::parse_file_in_engine` | `src/blueprint_lua.cpp` | 用调用方的 Engine parse Lua bp（`register_*` 副作用落到 Engine 挂的 registry） |
 | `cli::Subcommand::forward_rest` | `src/cli.hpp` | argv 透传（`luban run` 风格）|
