@@ -226,6 +226,7 @@ int run_env(const cli::ParsedArgs& a) {
         auto vcpkg_it = recs.find("vcpkg");
         if (vcpkg_it != recs.end() && !vcpkg_it->second.toolchain_dir.empty()) {
             fs::path vcpkg_root = paths::toolchain_dir(vcpkg_it->second.toolchain_dir);
+            vcpkg_root.make_preferred();
             if (win_path::set_user_env("VCPKG_ROOT", vcpkg_root.string())) {
                 log::okf("set HKCU VCPKG_ROOT = {}", vcpkg_root.string());
             }
@@ -238,6 +239,7 @@ int run_env(const cli::ParsedArgs& a) {
         // users run emcc directly in any shell — no activation, no PATH dance.
         if (recs.find("emscripten") != recs.end()) {
             fs::path em_config = paths::config_dir() / "emscripten" / "config";
+            em_config.make_preferred();
             if (win_path::set_user_env("EM_CONFIG", em_config.string())) {
                 log::okf("set HKCU EM_CONFIG = {}", em_config.string());
             }

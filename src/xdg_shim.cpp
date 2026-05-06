@@ -35,7 +35,12 @@ std::expected<fs::path, std::string> write_cmd_shim(
     if (!out) {
         return std::unexpected("cannot open " + shim_path.string());
     }
-    out << "@echo off\r\n\"" << exe.string() << "\" %*\r\n";
+    // Native separators only — mixing '/' into a .cmd path here works for
+    // cmd.exe but rots when downstream tools (PowerShell completion,
+    // some SDK probes) parse the file. make_preferred() forces '\\'.
+    fs::path exe_native = exe;
+    exe_native.make_preferred();
+    out << "@echo off\r\n\"" << exe_native.string() << "\" %*\r\n";
     if (!out) {
         return std::unexpected("write failure on " + shim_path.string());
     }

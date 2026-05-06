@@ -101,9 +101,11 @@ WriteResult write_shim(const std::string& alias,
         return WriteResult::Skipped;
     }
 
+    fs::path exe_native = exe;
+    exe_native.make_preferred();
     std::ostringstream cmd;
     cmd << "@echo off\r\n\""
-        << exe.string() << "\""
+        << exe_native.string() << "\""
         << join_prefix_cmd(prefix_args)
         << " %*\r\n";
     write_text_crlf(cmd_path, cmd.str());

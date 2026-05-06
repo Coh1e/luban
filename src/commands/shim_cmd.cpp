@@ -158,7 +158,12 @@ bool write_exe_shim(const std::string& alias,
 void write_shim_table(const std::map<std::string, fs::path>& alias_to_exe) {
     json table = json::object();
     for (auto& [alias, exe] : alias_to_exe) {
-        table[alias] = exe.string();
+        // Native separators only — luban-shim.exe passes the value to
+        // CreateProcessW which is OS-agnostic, but the .json is also read
+        // by humans (and downstream tooling) and mixed slashes look broken.
+        fs::path exe_native = exe;
+        exe_native.make_preferred();
+        table[alias] = exe_native.string();
     }
     fs::path out = table_file_path();
     std::error_code ec;
