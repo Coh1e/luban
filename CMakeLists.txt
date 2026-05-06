@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 0.2.1
+    VERSION 0.2.2
     LANGUAGES CXX C)
 
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe

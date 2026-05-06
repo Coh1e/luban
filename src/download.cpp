@@ -254,19 +254,29 @@ struct ParsedUrl {
     bool secure = true;
 };
 
-// Enable HTTP/2 (and HTTP/3 if available) on a WinHTTP session handle.
+// Enable HTTP/2 on a WinHTTP session handle. HTTP/3 is opt-in via
+// LUBAN_ENABLE_HTTP3=1 — see below for why.
+//
 // Empirical (VN -> github.com release CDN, 2026-05-06): single HTTP/1.1
 // stream tops out around 50 KB/s; HTTP/2 over the same connection runs
 // 4 MB/s — same throttle, but the protocol's multiplexing inside one
 // TCP avoids the per-IP connection-count limit GitHub's CDN imposes.
 //
-// WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL is option 133, available since
-// Windows 10 1607. The HTTP/3 flag (0x2) lights up on Win11 22H2+; we
-// OR it in unconditionally — older Windows just ignores unknown flags
-// and keeps HTTP/2.
+// HTTP/3 (Win11 22H2+) was previously OR'd in unconditionally on the
+// theory that "older Windows just ignores unknown flags". On Win11 with
+// h3 actually negotiated, the QUIC handshake hangs ~10s before falling
+// back to TCP/h2 on networks where UDP/443 is throttled or filtered
+// (VN/CN networks routinely qualify). User reported `bp src update`
+// taking 20s for a 10 KiB tarball — `curl --http2` against the same
+// URL from the same machine: 780ms. 25× slowdown, root cause confirmed
+// as h3 negotiation.
 //
-// Define the constants ourselves so the build doesn't depend on which
-// SDK header version the build environment ships.
+// Default HTTP/2 only. Opt-in to h3 with LUBAN_ENABLE_HTTP3=1 if you're
+// on a network where UDP/443 to GitHub's CDN works.
+//
+// WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL is option 133, available since
+// Windows 10 1607. Define constants ourselves so the build doesn't
+// depend on which SDK header version is around.
 #ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
 #define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 133
 #endif
@@ -277,7 +287,10 @@ struct ParsedUrl {
 #define WINHTTP_PROTOCOL_FLAG_HTTP3 0x2
 #endif
 void enable_http2_on_session(HINTERNET session) {
-    DWORD flags = WINHTTP_PROTOCOL_FLAG_HTTP2 | WINHTTP_PROTOCOL_FLAG_HTTP3;
+    DWORD flags = WINHTTP_PROTOCOL_FLAG_HTTP2;
+    if (std::getenv("LUBAN_ENABLE_HTTP3") != nullptr) {
+        flags |= WINHTTP_PROTOCOL_FLAG_HTTP3;
+    }
     WinHttpSetOption(session, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
                      &flags, sizeof(flags));
     // No error check: opt-in. If the OS doesn't recognize the option
