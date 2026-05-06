@@ -1,0 +1,17 @@
+{
+  "_comment": "Luban overlay: Node.js Active LTS — needed for emscripten's JS-side tooling and as a general-purpose dev tool. Windows-first; mac/linux deferred until the cross-platform port lands. Bundled node inside emscripten works for emcc itself, but a separate node component lets users run npm/npx/etc.",
+  "version": "24.15.0",
+  "homepage": "https://nodejs.org",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://nodejs.org/dist/v24.15.0/node-v24.15.0-win-x64.zip",
+      "hash": "sha256:cc5149eabd53779ce1e7bdc5401643622d0c7e6800ade18928a767e940bb0e62"
+    }
+  },
+  "extract_dir": "node-v24.15.0-win-x64",
+  "bin": [
+    ["node.exe", "node"]
+  ],
+  "env_add_path": [""]
+}

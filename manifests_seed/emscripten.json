@@ -1,0 +1,16 @@
+{
+  "_comment": "Luban overlay: Emscripten C++→WASM toolchain. Pinned by chromium-rev (the way emsdk indexes builds). Archive lives at storage.googleapis.com/webassembly/emscripten-releases-builds/<platform>/<rev>/wasm-binaries.<ext>. Top-level wrapper inside the zip is 'install/'. Bundles clang/lld/llvm-* + the emscripten Python+JS toolchain, but does NOT bundle node.exe or python.exe — those are required from PATH (depends on 'node'; users must install Python 3.x themselves).",
+  "version": "5.0.6",
+  "_chromium_rev": "1724b50443d92e23ef2a56abf0dc501206839cef",
+  "homepage": "https://emscripten.org",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/win/1724b50443d92e23ef2a56abf0dc501206839cef/wasm-binaries.zip",
+      "hash": "sha256:bbea17bc23e80a15d959af2dcb8bd9d23d625701d784ffe9118267698d6e7049"
+    }
+  },
+  "extract_dir": "install",
+  "env_add_path": ["emscripten"],
+  "depends": ["node"]
+}

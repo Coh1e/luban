@@ -1,0 +1,38 @@
+# Build artifacts
+build/
+out/
+.cache/
+.vs/
+*.user
+
+# CMake
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE / editor
+.vscode/
+*.swp
+.DS_Store
+
+# vcpkg working dirs (per-project, not luban's repo)
+vcpkg_installed/
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Editor scratch
+*.bak
+*.orig
+
+# git tag message drafts (used with `git tag -a -F`)
+.git-*.tmp
+
+# Claude Code local settings (per-machine)
+.claude/settings.local.json
+
+# Compiler artifacts that may leak into repo cwd
+*.obj
+*.lib
+*.exp
+*.pdb

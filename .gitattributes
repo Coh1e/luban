@@ -1,0 +1,20 @@
+# Default: let git handle line endings per platform on checkout, normalize
+# to LF in the index. This is what we want for source files.
+* text=auto
+
+# Windows-only scripts must keep CRLF on disk — cmd.exe misparses LF-only
+# .bat / .cmd files (treats `::` comment lines as commands → 'foo is not
+# recognized' / exit 9009). Without this rule, `core.autocrlf=false` users
+# (which includes most non-Windows-default git installs) end up with broken
+# checkouts.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# POSIX scripts must be LF, regardless of host. CRLF in shell scripts
+# yields a broken shebang or `\r` artifacts at end of lines.
+*.sh   text eol=lf
+
+# Vendored third-party single-header libs: don't touch — keep upstream
+# bytes verbatim so SHA matches what they ship.
+third_party/** -text
