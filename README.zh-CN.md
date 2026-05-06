@@ -39,7 +39,7 @@ HKCU PATH）。已装过的机器重跑只 SHA 对比，不会重复下载。
 | `LUBAN_FLAVOR` | `msvc` | 选哪个 flavor (`msvc` \| `mingw`) |
 | `LUBAN_FORCE_REINSTALL` | unset | =1 时跳过 SHA 命中短路 |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代前缀（如 `https://ghfast.top`），CN/SEA 慢网用；installer 和 luban 都认。**注意公共 mirror 限速严，能直连优先直连** |
-| `LUBAN_PARALLEL_CHUNKS` | `4` | bp apply Range 并发数（0 = 单流，最高 16）。**CDN throttle 时调到 1-2 反而更快** |
+| `LUBAN_PARALLEL_CHUNKS` | `1` | bp apply Range 并发数（默认单流，最高 16）。GitHub release CDN 对多并发 per-IP throttle 很狠（VN 实测 1 路 4.7 MB/s，4 路反而掉到 150 KB/s），单流才是常态。私有 S3/内网镜像才调高 |
 | `LUBAN_PROGRESS` / `LUBAN_NO_PROGRESS` | unset | 强制开/关进度条（TTY 默认开） |
 
 ### 手动

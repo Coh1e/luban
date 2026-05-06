@@ -40,7 +40,7 @@ Re-running on an already-installed machine SHA-compares before re-downloading.
 | `LUBAN_FLAVOR` | `msvc` | which release binary (`msvc` or `mingw`) |
 | `LUBAN_FORCE_REINSTALL` | unset | `=1` re-downloads even if SHA matches |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset | reverse-proxy prefix (e.g. `https://ghfast.top`) for slow CN/SEA networks; honored by both installer and luban itself |
-| `LUBAN_PARALLEL_CHUNKS` | `4` | bp apply Range download concurrency (0 = single-stream, max 16). **If GitHub CDN throttles, drop to 1-2 for faster effective speed.** |
+| `LUBAN_PARALLEL_CHUNKS` | `1` | bp apply Range download concurrency (default single-stream; max 16). GitHub's release CDN per-IP-throttles parallel connections aggressively (1 → 4.7 MB/s, 4 → 150 KB/s aggregate on VN networks). Crank up only on private S3 / internal mirrors. |
 | `LUBAN_PROGRESS` / `LUBAN_NO_PROGRESS` | unset | force progress bar on / off (auto-enabled on TTY) |
 
 ### Manual

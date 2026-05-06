@@ -100,16 +100,20 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     download::DownloadOptions dlopts;
     dlopts.expected_hash = *hash_spec;
     dlopts.label = opts.label.empty() ? std::string(artifact_id) : opts.label;
-    // Multi-stream Range download. A single TCP connection to GitHub
-    // releases gets per-connection-throttled by the CDN, especially on
-    // slow / high-latency links (CN, VN). Splitting into N parallel
-    // chunks aggregates closer to link ceiling — typically 2-3x for
-    // ~200 MB artifacts. Falls back cleanly to single-stream when the
-    // server can't slice or the file is below threshold (8 MiB).
+    // Single-stream by default. Empirical (VN→github.com, 2026-05-06):
+    //   1 connection → 4.7 MB/s
+    //   4 connections → 150 KB/s aggregate (3 of 4 chunks throttled +
+    //                  1 connection reset by CDN)
+    // GitHub's release CDN per-IP-throttles aggressively when it sees
+    // multiple parallel TCP connections to the same asset. Browsers
+    // appear fast because HTTP/2 multiplexes inside a single connection,
+    // never tripping the throttle. Until WinHTTP HTTP/2 is wired up,
+    // single-stream is the right default.
     //
-    // Override via LUBAN_PARALLEL_CHUNKS=N (0 = disable) for users who
-    // want to crank further on high-latency links.
-    dlopts.parallel_chunks = 4;
+    // LUBAN_PARALLEL_CHUNKS=N opts back into multi-stream for networks
+    // where the CDN doesn't throttle (private S3 buckets, internal
+    // mirrors, etc.). 0 explicitly disables.
+    dlopts.parallel_chunks = 1;
     if (const char* env = std::getenv("LUBAN_PARALLEL_CHUNKS")) {
         try { dlopts.parallel_chunks = std::stoi(env); } catch (...) {}
     }
