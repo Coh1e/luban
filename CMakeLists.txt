@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 0.2.6
+    VERSION 0.3.0
     LANGUAGES CXX C)
 
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
@@ -108,6 +108,7 @@ set(LUBAN_SOURCES
     src/win_path.cpp
     src/hash.cpp
     src/download.cpp
+    $<$<PLATFORM_ID:Windows>:src/curl_subprocess.cpp>
     src/archive.cpp
     src/luban_toml.cpp
     src/vcpkg_manifest.cpp
@@ -203,7 +204,9 @@ if(WIN32)
     # GetEnvironmentVariableW / CreateProcessW / GetStdHandle / SetConsoleMode (kernel32),
     # RegOpenKeyExW / RegQueryValueExW / RegSetValueExW (advapi32),
     # SendMessageTimeoutW (user32).
-    target_link_libraries(luban PRIVATE shell32 ole32 advapi32 user32 bcrypt winhttp)
+    # winhttp removed in v0.3.0 — Win32 download path uses curl.exe subprocess
+    # (src/curl_subprocess.cpp). bcrypt stays for hash.cpp's BCryptHash*.
+    target_link_libraries(luban PRIVATE shell32 ole32 advapi32 user32 bcrypt)
     target_compile_definitions(luban PRIVATE
         UNICODE
         _UNICODE
