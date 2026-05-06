@@ -211,11 +211,30 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     //
     // No current generation = treat as empty applied set, which fails
     // every requires entry but with the right error message.
+    //
+    // Qualifier handling (v0.2.4): apply() only sees `spec.name` which is
+    // the bare bp name (e.g. "foundation"); commands/blueprint.cpp resolves
+    // `main/foundation` to a spec but doesn't currently propagate the
+    // source qualifier into the generation record. Meanwhile bp authors
+    // (sensibly) write `requires = ["main/foundation"]`. Result: applied
+    // set holds "foundation" but requires says "main/foundation" — false
+    // negative, gating blocks valid applies. Until qualified names land
+    // in generation records, compare bare-name vs bare-name on both sides.
+    // Trade-off: cross-source name collision (`other/foundation` and
+    // `main/foundation` both satisfy each other) — accepted for the v0.2.x
+    // window since it's a strictly weaker check, and bp source repo names
+    // are user-controlled (no malicious-source story to worry about yet).
+    auto strip_source = [](std::string_view s) -> std::string_view {
+        auto slash = s.find('/');
+        return (slash != std::string_view::npos) ? s.substr(slash + 1) : s;
+    };
     if (!spec.meta.requires_.empty()) {
         std::set<std::string> applied;
         if (auto current_id = gen::get_current(); current_id) {
             if (auto cur = gen::read(*current_id); cur) {
-                for (auto& name : cur->applied_blueprints) applied.insert(name);
+                for (auto& name : cur->applied_blueprints) {
+                    applied.insert(std::string(strip_source(name)));
+                }
             }
             // Read failure is treated as "no applied bps known" — same
             // outcome as no current generation. The user gets a clear
@@ -223,7 +242,9 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         }
         std::vector<std::string> missing;
         for (auto& req : spec.meta.requires_) {
-            if (!applied.contains(req)) missing.push_back(req);
+            if (!applied.contains(std::string(strip_source(req)))) {
+                missing.push_back(req);
+            }
         }
         if (!missing.empty()) {
             std::string msg = "blueprint `" + spec.name +
