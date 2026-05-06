@@ -112,15 +112,18 @@ function Download-File($url, $dest) {
             #       don't burn the whole --max-time on a stuck connect.
             # --max-time bumped from 300 to 900 — slow VN networks need it for the
             #       6 MB MinGW asset.
-            # -#: simple bar instead of curl's default verbose meter.
+            # No `-#` — that strips the verbose meter (% / total / Dload / ETA)
+            # down to a bare hash bar with no context, which felt worse than
+            # the v0.1.6 silent-then-done UX. curl's default 4-line meter is
+            # informative AND animates live thanks to Start-Process below.
             #
             # Use Start-Process -NoNewWindow so curl's stderr writes straight to
             # the inherited console TTY. With `& $curl` PowerShell intercepts
             # stderr and only flushes on exit, which makes the live progress
-            # appear "all at once at the end" — bad UX and the user noticed.
+            # appear "all at once at the end" — bad UX.
             $proc = Start-Process -FilePath $curlExe -NoNewWindow -Wait -PassThru `
                 -ArgumentList @(
-                    '-fSL', '-#',
+                    '-fSL',
                     '--connect-timeout', '30', '--max-time', '900',
                     '-C', '-',
                     '-A', 'luban-installer',
