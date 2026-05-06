@@ -33,6 +33,9 @@
 #include "blueprint.hpp"
 #include "blueprint_lock.hpp"
 
+namespace luban::lua { class Engine; }
+namespace luban::renderer_registry { class RendererRegistry; }
+
 namespace luban::blueprint_apply {
 
 struct ApplyOptions {
@@ -51,6 +54,18 @@ struct ApplyOptions {
     /// commands/blueprint.cpp can leave this empty if they don't need
     /// `bp:`-style scripts.
     std::optional<std::filesystem::path> bp_source_root;
+
+    /// Engine + registry pair for bp-registered renderer dispatch (Tier 1,
+    /// DESIGN §9.9). Both must be non-null together — registry entries hold
+    /// luaL_refs into engine's LUA_REGISTRYINDEX. Caller (commands/blueprint.cpp
+    /// for Lua bps) parses the bp via `blueprint_lua::parse_file_in_engine`
+    /// so register_renderer side effects land in the same engine that apply
+    /// later invokes during config rendering.
+    ///
+    /// Both nullptr → TOML-bp path: config_renderer falls back to its
+    /// builtin-embedded dispatch (existing behavior).
+    luban::lua::Engine* lua_engine = nullptr;
+    luban::renderer_registry::RendererRegistry* renderer_registry = nullptr;
 };
 
 struct ApplyResult {

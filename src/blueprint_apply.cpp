@@ -41,6 +41,7 @@
 #include "platform.hpp"
 #include "proc.hpp"
 #include "config_renderer.hpp"
+#include "renderer_registry.hpp"
 #include "source_resolver.hpp"
 #include "store.hpp"
 #include "xdg_shim.hpp"
@@ -496,7 +497,19 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         // back to cfg.name (the conventional same-name binding) when unset.
         const std::string& renderer_name = cfg.for_tool.value_or(cfg.name);
         log::stepf("[{}/{}] config: {}", cfg_idx, total_cfgs, cfg.name);
-        auto rendered = luban::config_renderer::render(renderer_name, cfg.config, ctx);
+        // Lua bps may have called register_renderer during parse; in that
+        // case the engine + registry are non-null and we dispatch via the
+        // registry, which knows how to invoke either bp-registered renderers
+        // (lua_refs into engine's LUA_REGISTRYINDEX) or fall through to
+        // the builtin embedded path.
+        std::expected<luban::config_renderer::RenderResult, std::string> rendered;
+        if (opts.lua_engine && opts.renderer_registry) {
+            rendered = luban::config_renderer::render_with_registry(
+                *opts.lua_engine, *opts.renderer_registry,
+                renderer_name, cfg.config, ctx);
+        } else {
+            rendered = luban::config_renderer::render(renderer_name, cfg.config, ctx);
+        }
         if (!rendered) {
             return std::unexpected("render " + cfg.name + ": " + rendered.error());
         }

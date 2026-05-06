@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 0.3.0
+    VERSION 0.4.0
     LANGUAGES CXX C)
 
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
@@ -125,6 +125,7 @@ set(LUBAN_SOURCES
     src/lua_engine_download.cpp
     src/qjs_engine.cpp
     src/progress.cpp
+    src/renderer_registry.cpp
     src/blueprint_toml.cpp
     src/blueprint_lua.cpp
     src/blueprint_lock.cpp
@@ -319,6 +320,7 @@ if(LUBAN_BUILD_TESTS)
         src/external_skip.cpp
         src/lua_json.cpp
         src/config_renderer.cpp
+        src/renderer_registry.cpp
         src/generation.cpp
         src/xdg_shim.cpp
         src/blueprint_reconcile.cpp

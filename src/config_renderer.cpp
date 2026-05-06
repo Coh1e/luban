@@ -31,6 +31,7 @@ extern "C" {
 #include "lua_engine.hpp"
 #include "lua_json.hpp"
 #include "paths.hpp"
+#include "renderer_registry.hpp"
 
 // Embedded-configs namespace — these headers are emitted by
 // cmake/embed_text.cmake from templates/configs/<X>.lua. The headers
@@ -222,6 +223,64 @@ std::expected<RenderResult, std::string> render(std::string_view tool_name,
     auto src = resolve_source(tool_name);
     if (!src) return std::unexpected(src.error());
     return render_with_source(src->code, src->chunkname, cfg, ctx);
+}
+
+// ---- bp-registered renderer dispatch (Tier 1, DESIGN §9.9) -------------
+
+namespace {
+
+// Call a function whose lua_ref lives in `L`'s LUA_REGISTRYINDEX with
+// (cfg, ctx) and harvest the string return value. fn_name only used for
+// error message context.
+std::expected<std::string, std::string> call_registered(
+    lua_State* L, int fn_ref, const char* fn_name,
+    const nlohmann::json& cfg, const Context& ctx) {
+    lua_rawgeti(L, LUA_REGISTRYINDEX, fn_ref);
+    if (!lua_isfunction(L, -1)) {
+        std::string actual = lua_typename(L, lua_type(L, -1));
+        lua_pop(L, 1);
+        return std::unexpected(std::string("registered ") + fn_name +
+                               " ref points to " + actual + ", expected function");
+    }
+    luban::lua_json::push(L, cfg);
+    push_ctx(L, ctx);
+    if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+        std::string err = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        return std::unexpected(std::string("error calling registered ") +
+                               fn_name + ": " + err);
+    }
+    return pop_string_or_error(L, fn_name);
+}
+
+}  // namespace
+
+std::expected<RenderResult, std::string> render_with_registry(
+    luban::lua::Engine& engine,
+    const luban::renderer_registry::RendererRegistry& registry,
+    std::string_view tool_name, const nlohmann::json& cfg,
+    const Context& ctx) {
+    if (auto entry = registry.find(tool_name); entry) {
+        if (entry->L != engine.state()) {
+            // Cross-engine ref — would crash if we tried to invoke.
+            // This shouldn't happen with the documented ownership model
+            // but guard explicitly because the failure mode otherwise
+            // is a process abort.
+            return std::unexpected(
+                "renderer `" + std::string(tool_name) +
+                "` was registered against a different Engine instance");
+        }
+        lua_State* L = entry->L;
+        auto tp = call_registered(L, entry->target_path_ref,
+                                   "target_path", cfg, ctx);
+        if (!tp) return std::unexpected(tp.error());
+        auto content = call_registered(L, entry->render_ref,
+                                        "render", cfg, ctx);
+        if (!content) return std::unexpected(content.error());
+        return RenderResult{fs::path(*tp), *content};
+    }
+    // Fall through to the builtin / user-override path.
+    return render(tool_name, cfg, ctx);
 }
 
 }  // namespace luban::config_renderer

@@ -40,7 +40,9 @@
 #include "../file_deploy.hpp"
 #include "../generation.hpp"
 #include "../log.hpp"
+#include "../lua_engine.hpp"
 #include "../paths.hpp"
+#include "../renderer_registry.hpp"
 #include "../source_registry.hpp"
 #include "../source_resolver.hpp"
 #include "../xdg_shim.hpp"
@@ -314,6 +316,36 @@ int run_apply(const cli::ParsedArgs& args) {
         // parent_path() again strips the `blueprints` segment.
         auto bp_root = resolved->source_path.parent_path().parent_path();
         if (!bp_root.empty()) opts.bp_source_root = bp_root;
+    }
+
+    // Tier 1 (DESIGN §9.9): for Lua bps, parse a SECOND time inside a
+    // long-lived engine + registry so that any `luban.register_renderer`
+    // calls deposit refs we can re-invoke during the render phase. The
+    // first parse (resolve_blueprint above) already gave us the spec for
+    // the apply pipeline; this second parse runs the same source for its
+    // side effects (register_renderer fires; we don't keep the result).
+    //
+    // Cost: Lua parse is sub-ms — acceptable for the API symmetry win.
+    // For TOML bps we skip this path entirely and config_renderer falls
+    // back to its builtin-embedded dispatch (no registry needed).
+    std::optional<luban::lua::Engine> apply_engine;
+    std::optional<luban::renderer_registry::RendererRegistry> apply_registry;
+    if (resolved->source_path.extension() == ".lua") {
+        apply_engine.emplace();
+        apply_registry.emplace();
+        apply_engine->attach_registry(&*apply_registry);
+        auto reparsed = luban::blueprint_lua::parse_file_in_engine(
+            *apply_engine, resolved->source_path);
+        if (!reparsed) {
+            std::cerr << "re-parse for renderer engine: "
+                      << reparsed.error() << "\n";
+            return 1;
+        }
+        // Discard reparsed.spec — register_renderer's side effect into
+        // *apply_registry is what we wanted. The spec itself is identical
+        // to resolved->spec (deterministic Lua parse, same source).
+        opts.lua_engine = &*apply_engine;
+        opts.renderer_registry = &*apply_registry;
     }
 
     auto result = luban::blueprint_apply::apply(resolved->spec, *lock, opts);

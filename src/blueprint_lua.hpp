@@ -20,6 +20,8 @@
 
 #include "blueprint.hpp"
 
+namespace luban::lua { class Engine; }
+
 namespace luban::blueprint_lua {
 
 /// Parse a Lua blueprint file. Returns BlueprintSpec on success, or an
@@ -27,11 +29,30 @@ namespace luban::blueprint_lua {
 /// failures (sandbox violation, syntax error, runtime error), and
 /// schema-validation failures (return value is not a table, missing
 /// required `name`, etc.).
+///
+/// This overload spins a fresh Engine for the parse and discards it on
+/// return. Use this when the blueprint never calls
+/// `luban.register_renderer` (the bp's TOML side, tests, or any path
+/// where the parse engine doesn't need to outlive parse).
 [[nodiscard]] std::expected<luban::blueprint::BlueprintSpec, std::string>
 parse_file(const std::filesystem::path& path);
 
 /// Same but parse from a string (used by tests).
 [[nodiscard]] std::expected<luban::blueprint::BlueprintSpec, std::string>
 parse_string(std::string_view content);
+
+/// Parse using a caller-owned Engine. The Engine MUST stay alive across
+/// the subsequent render phase, because any `luban.register_renderer`
+/// calls deposit luaL_refs into THIS engine's LUA_REGISTRYINDEX — those
+/// refs become invalid the moment the engine destructs.
+///
+/// Used by blueprint_apply for Lua-form bps so registered renderers
+/// remain callable when config_renderer hits `[config.X]` blocks later.
+[[nodiscard]] std::expected<luban::blueprint::BlueprintSpec, std::string>
+parse_file_in_engine(luban::lua::Engine& engine,
+                     const std::filesystem::path& path);
+
+[[nodiscard]] std::expected<luban::blueprint::BlueprintSpec, std::string>
+parse_string_in_engine(luban::lua::Engine& engine, std::string_view content);
 
 }  // namespace luban::blueprint_lua

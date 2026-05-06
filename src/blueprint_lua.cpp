@@ -361,11 +361,12 @@ std::expected<bp::BlueprintSpec, std::string> walk_top(lua_State* L) {
     return std::move(ctx.spec);
 }
 
-std::expected<bp::BlueprintSpec, std::string> exec_and_walk(
-    std::string_view code, const char* chunkname) {
-    luban::lua::Engine engine;
-    lua_State* L = engine.state();
-
+// Drive the load + run + walk against `L`. Caller owns the engine; on
+// return the bp's `return { ... }` table has been popped and (if any)
+// register_renderer side effects have landed in whatever registry was
+// attached to L's LUA_REGISTRYINDEX.
+std::expected<bp::BlueprintSpec, std::string> exec_and_walk_on(
+    lua_State* L, std::string_view code, const char* chunkname) {
     if (luaL_loadbuffer(L, code.data(), code.size(), chunkname) != LUA_OK) {
         std::string err = lua_tostring(L, -1);
         lua_pop(L, 1);
@@ -379,6 +380,12 @@ std::expected<bp::BlueprintSpec, std::string> exec_and_walk(
     auto result = walk_top(L);
     lua_pop(L, 1);
     return result;
+}
+
+std::expected<bp::BlueprintSpec, std::string> exec_and_walk(
+    std::string_view code, const char* chunkname) {
+    luban::lua::Engine engine;
+    return exec_and_walk_on(engine.state(), code, chunkname);
 }
 
 }  // namespace
@@ -398,6 +405,23 @@ std::expected<bp::BlueprintSpec, std::string> parse_file(
 std::expected<bp::BlueprintSpec, std::string> parse_string(
     std::string_view content) {
     return exec_and_walk(content, "=blueprint_lua_string");
+}
+
+std::expected<bp::BlueprintSpec, std::string> parse_file_in_engine(
+    luban::lua::Engine& engine, const std::filesystem::path& path) {
+    std::ifstream in(path);
+    if (!in) {
+        return std::unexpected("cannot open " + path.string());
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string filename = path.string();
+    return exec_and_walk_on(engine.state(), ss.str(), filename.c_str());
+}
+
+std::expected<bp::BlueprintSpec, std::string> parse_string_in_engine(
+    luban::lua::Engine& engine, std::string_view content) {
+    return exec_and_walk_on(engine.state(), content, "=blueprint_lua_string");
 }
 
 }  // namespace luban::blueprint_lua

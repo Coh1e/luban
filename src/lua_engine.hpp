@@ -30,6 +30,8 @@
 // them in.
 struct lua_State;
 
+namespace luban::renderer_registry { class RendererRegistry; }
+
 namespace luban::lua {
 
 /// One Lua VM with luban's sandbox + API installed.
@@ -70,6 +72,14 @@ class Engine {
     /// Use for low-level access (e.g., after eval_file, walk the resulting
     /// table). Do NOT call lua_close() on the returned pointer.
     lua_State* state() noexcept { return L_; }
+
+    /// Wire `luban.register_renderer(name, module)` to deposit refs into
+    /// `*reg` (which must outlive the Engine). Without this call, the Lua
+    /// API exists but is a no-op — renders the API harmless on TOML-bp
+    /// applies that happen to share an Engine for unrelated reasons.
+    /// Idempotent: re-attaching to a different registry replaces the
+    /// pointer in this engine's LUA_REGISTRYINDEX stash.
+    void attach_registry(luban::renderer_registry::RendererRegistry* reg);
 
    private:
     lua_State* L_ = nullptr;

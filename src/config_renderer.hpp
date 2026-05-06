@@ -30,6 +30,9 @@
 
 #include "json.hpp"
 
+namespace luban::lua { class Engine; }
+namespace luban::renderer_registry { class RendererRegistry; }
+
 namespace luban::config_renderer {
 
 /// Context handed to renderers as the second argument. Contains the
@@ -64,5 +67,19 @@ struct RenderResult {
 [[nodiscard]] std::expected<RenderResult, std::string> render_with_source(
     std::string_view lua_source, std::string_view chunk_name,
     const nlohmann::json& cfg, const Context& ctx);
+
+/// Render via a bp-registered renderer if `registry` knows `tool_name`,
+/// otherwise fall back to `render(tool_name, cfg, ctx)` (builtin embedded
+/// path / user override). The bp-registered case calls into the same
+/// `engine` the bp's `return { ... }` evaluated in, since the renderer
+/// fn refs were taken there.
+///
+/// Used by blueprint_apply for Lua-form bps. TOML-form bps go through
+/// the plain `render()` overload instead — they have no registry.
+[[nodiscard]] std::expected<RenderResult, std::string> render_with_registry(
+    luban::lua::Engine& engine,
+    const luban::renderer_registry::RendererRegistry& registry,
+    std::string_view tool_name, const nlohmann::json& cfg,
+    const Context& ctx);
 
 }  // namespace luban::config_renderer

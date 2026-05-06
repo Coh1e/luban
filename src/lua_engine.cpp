@@ -27,6 +27,7 @@ extern "C" {
 
 #include "luban/version.hpp"
 #include "paths.hpp"
+#include "renderer_registry.hpp"
 
 namespace luban::lua {
 
@@ -176,6 +177,62 @@ int api_download(lua_State* L) {
     return 2;
 }
 
+// Key under which we stash the RendererRegistry pointer in the engine's
+// LUA_REGISTRYINDEX. lightuserdata so retrieval is cheap (no string keys
+// in hot paths).
+constexpr const char* kRendererRegistryKey = "luban_renderer_registry_ptr";
+
+// `luban.register_renderer(name, module_table)` — declare a custom config
+// renderer for `[config.<name>]` blocks in the bp. `module_table` must
+// have function fields `target_path` and `render`, both with signature
+// `(cfg : table, ctx : table) → string`. See DESIGN §9.9 inline registration.
+//
+// Without an attached registry (TOML-bp apply, programmatic engine, etc),
+// this becomes a no-op so callers that defensively register_renderer can
+// run in any context without errors.
+int api_register_renderer(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    if (!lua_istable(L, 2)) {
+        return luaL_error(L, "luban.register_renderer(\"%s\", module): module "
+                              "must be a table {target_path = fn, render = fn}",
+                          name);
+    }
+
+    // Validate fields BEFORE taking refs — failed validation shouldn't leak
+    // a ref into LUA_REGISTRYINDEX.
+    lua_getfield(L, 2, "target_path");
+    if (!lua_isfunction(L, -1)) {
+        lua_pop(L, 1);
+        return luaL_error(L, "luban.register_renderer(\"%s\"): module.target_path "
+                              "must be a function", name);
+    }
+    int tp_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_getfield(L, 2, "render");
+    if (!lua_isfunction(L, -1)) {
+        luaL_unref(L, LUA_REGISTRYINDEX, tp_ref);
+        lua_pop(L, 1);
+        return luaL_error(L, "luban.register_renderer(\"%s\"): module.render "
+                              "must be a function", name);
+    }
+    int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    // Look up the registry pointer stashed by Engine::attach_registry.
+    // Absent = no-op (silently drop the refs we just took since nobody
+    // will ever call them).
+    lua_pushstring(L, kRendererRegistryKey);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    auto* reg = static_cast<::luban::renderer_registry::RendererRegistry*>(
+        lua_touserdata(L, -1));
+    lua_pop(L, 1);
+    if (!reg) {
+        luaL_unref(L, LUA_REGISTRYINDEX, tp_ref);
+        luaL_unref(L, LUA_REGISTRYINDEX, r_ref);
+        return 0;
+    }
+    reg->register_lua(name, L, tp_ref, r_ref);
+    return 0;
+}
+
 void install_luban_api(lua_State* L) {
     lua_newtable(L);  // luban
 
@@ -207,6 +264,12 @@ void install_luban_api(lua_State* L) {
     lua_pushcfunction(L, api_download);
     lua_setfield(L, -2, "download");
 
+    // luban.register_renderer(name, module) → register a custom config
+    // renderer (DESIGN §9.9). No-op when no RendererRegistry is attached
+    // to the engine — see Engine::attach_registry.
+    lua_pushcfunction(L, api_register_renderer);
+    lua_setfield(L, -2, "register_renderer");
+
     lua_setglobal(L, "luban");
 }
 
@@ -228,6 +291,17 @@ std::string top_as_string(lua_State* L) {
 }  // namespace
 
 // ---- Engine impl --------------------------------------------------------
+
+void Engine::attach_registry(::luban::renderer_registry::RendererRegistry* reg) {
+    if (!L_) return;
+    lua_pushstring(L_, kRendererRegistryKey);
+    if (reg) {
+        lua_pushlightuserdata(L_, reg);
+    } else {
+        lua_pushnil(L_);
+    }
+    lua_settable(L_, LUA_REGISTRYINDEX);
+}
 
 Engine::Engine() {
     L_ = luaL_newstate();

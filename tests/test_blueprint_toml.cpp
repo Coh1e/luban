@@ -251,7 +251,7 @@ style = ["numbers", "changes", "header"]
     CHECK(bat->config["style"][0].get<std::string>() == "numbers");
 }
 
-TEST_CASE("[file."path"] replace mode with content") {
+TEST_CASE("[file.\"path\"] replace mode with content") {
     auto r = bpt::parse_string(R"(
 name = "x"
 [file."~/.config/some-tool/config"]
@@ -267,7 +267,7 @@ mode = "replace"
     CHECK(r->files[0].content.find("key=value") != std::string::npos);
 }
 
-TEST_CASE("[file."path"] drop-in mode") {
+TEST_CASE("[file.\"path\"] drop-in mode") {
     auto r = bpt::parse_string(R"(
 name = "x"
 [file."~/.gitconfig.d/cli"]
@@ -279,7 +279,7 @@ mode = "drop-in"
     CHECK(r->files[0].mode == bp::FileMode::DropIn);
 }
 
-TEST_CASE("[file."path"] unknown mode is an error") {
+TEST_CASE("[file.\"path\"] unknown mode is an error") {
     auto r = bpt::parse_string(R"(
 name = "x"
 [file."~/x"]
