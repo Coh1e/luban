@@ -90,28 +90,184 @@ luban 二进制**零内嵌 bp**。基础 4 件（`foundation` / `cpp-toolchain` 
 [Coh1e/luban-bps](https://github.com/Coh1e/luban-bps)。任何人都能发自己的
 blueprint source repo 然后 `luban bp src add` 注册。
 
-### 图纸 schema（v0.2.0）
+### 图纸 cookbook
+
+图纸住 `<bp-source>/blueprints/<name>.{toml,lua}`。单数 TOML key
+（`tool` / `config` / `file`）是 v0.2.0 schema（议题 P）。下面都是 TOML
+形态；Lua 形态参考 `Coh1e/luban-bps/blueprints/onboarding.lua`。
+
+#### 1. 最简单——把工具落到 PATH
 
 ```toml
 schema = 1
-name = "my-bp"
-
-[tool.ripgrep]                          # 一个 tool 一个二进制（落到 PATH）
+name = "ripgrep"
+[tool.ripgrep]
 source = "github:BurntSushi/ripgrep"
-
-[config.git]                            # 通过 git renderer 渲染 dotfile
-userName = "alice"
-
-[file."~/.config/starship.toml"]        # 直接落一个文件
-mode = "merge"                          # replace | drop-in | merge | append
-content = '{"add_newline": false}'
-
-[meta]
-requires = ["main/foundation"]          # 强制——apply 顺序显式可读
 ```
 
-单数 key（`tool` / `config` / `file`）—— v0.2.0 schema rename（议题 P）
-把旧的复数形式弃了；老 bp 需要切到单数。
+`luban bp apply <src>/ripgrep` → 拉最新 release zip → 解压 → shim
+`rg.exe` 到 `~/.local/bin/`。Asset scorer 按 host triplet 选 zip；sha256
+首次 apply 后 pin 到 `<src>/blueprints/ripgrep.toml.lock`。
+
+#### 2. 多二进制工具——显式 shim 列表
+
+```toml
+[tool.openssh]
+source = "github:PowerShell/Win32-OpenSSH"
+bin = "ssh.exe"
+shims = ["ssh.exe", "ssh-keygen.exe", "ssh-agent.exe", "scp.exe", "sftp.exe"]
+external_skip = "ssh.exe"      # PATH 上已有 ssh（System32\OpenSSH）就跳过
+```
+
+`shim_dir = "bin"` 是自动发现版——`bin/` 下每个 `*.exe` 都自动 shim。
+`cpp-toolchain` 给 llvm-mingw 的 ~270 个 binary 用这条（手写 `shims`
+跟不上 upstream 版本漂移）。
+
+#### 3. 安装后要跑脚本——`post_install`
+
+```toml
+[tool.vcpkg]
+source = "github:microsoft/vcpkg"      # 无 release 资产，走 source-zip fallback
+bin = "vcpkg.exe"
+post_install = "bootstrap-vcpkg.bat"   # 路径相对 extracted artifact
+```
+
+post_install 在新解压时跑一次（cwd = artifact 根，Windows 走 `cmd /c`）。
+vcpkg 自带 bootstrap 脚本所以直接能用。**当 upstream zip 只装载荷不带
+install logic**（字体就是这种），用 `bp:` 前缀：
+
+```toml
+[tool.maple-mono]
+source = "github:subframe7536/maple-font"
+no_shim = true                          # 不是 CLI binary，没 PATH 入口
+post_install = "bp:scripts/register-fonts.ps1"
+# bp:<rel> 相对你这个 bp source repo 的根，不是 artifact 根。
+# 脚本住你 bp 仓的 scripts/，不是 upstream zip 里。
+```
+
+实际 bp：`Coh1e/luban-bps/blueprints/fonts.toml`。把 artifact 里所有
+`.ttf` 注册到 HKCU\…\Fonts + AddFontResourceEx（per-user，零 UAC）。
+
+#### 4. 给工具配 dotfile——`config` 块
+
+```toml
+[config.git]                            # 用内置 git renderer
+userName = "alice"
+userEmail = "alice@example.com"
+lfs = true                              # 加 [filter "lfs"] 块
+[config.git.aliases]
+co = "checkout"
+br = "branch"
+```
+
+内置 renderer：`git` / `bat` / `fastfetch` / `yazi` / `delta`。输出走
+drop-in `~/.gitconfig.d/<bp>.gitconfig`；用户主 `~/.gitconfig` 只需
+`[include]` 一次该目录。**自定义 renderer 走 Lua 蓝图**是 v0.3.0 工作
+（议题 M(d)）。
+
+#### 5. 直接落一个文件（4 种 mode）
+
+```toml
+# (a) replace：整覆盖目标，首次 apply 会备份原文件
+[file."~/.config/starship.toml"]
+mode = "replace"
+content = '''
+add_newline = false
+[character]
+success_symbol = "[❯](bold green)"
+'''
+
+# (b) drop-in：写到 <canonical>.d/<bp>，跟用户主文件并列
+[file."~/.gitconfig.d/work-aliases.gitconfig"]
+mode = "drop-in"
+content = "[alias]\n    co = checkout\n"
+
+# (c) merge：JSON Merge Patch (RFC 7396)——只动你列出的 key，其他保留。
+#     用例：WT settings.json 的 themes 部分，不动其它字段。
+[file."~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"]
+mode = "merge"
+content = '''
+{
+  "profiles": {
+    "defaults": {
+      "font": { "face": "Maple Mono NF CN", "size": 11 }
+    }
+  }
+}
+'''
+
+# (d) append：把 content 包在 luban marker block 里（按 bp 名 key），
+#     重 apply 替换块内容不重复堆，幂等。多 bp 共享 profile.ps1 不打架。
+[file."~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"]
+mode = "append"
+content = '''
+Invoke-Expression (& { (zoxide init powershell | Out-String) })
+Invoke-Expression (&starship init powershell)
+'''
+```
+
+#### 6. 叠层——`meta.requires`
+
+```toml
+[meta]
+requires = ["main/foundation", "main/cli-tools"]   # apply 时强制检查
+conflicts = ["main/legacy-cpp-base"]               # 互斥（计划中）
+```
+
+当前 generation 没装 `main/foundation` 时 `bp apply` 直接 fail，错误信息
+里给出**精确的** `luban bp apply main/foundation` 命令复制粘贴。
+install.ps1 两阶段 bootstrap（foundation 无 prompt 自动装、cpp-toolchain
+prompt）让新机器从一开始就满足 gate。
+
+#### 7. 个人 onboarding bp 模板
+
+一台机器一次到位的常见 shape：
+
+```toml
+schema = 1
+name = "onboarding"
+description = "Win11 个人配置"
+
+# 装基础 3 件没覆盖的工具
+[tool.gh]
+source = "github:cli/cli"
+[tool.lazygit]
+source = "github:jesseduffield/lazygit"
+
+# 配置 foundation 已装的工具
+[config.git]
+userName = "Coh1e"
+userEmail = "you@example.com"
+[config.git.credential]
+helper = "manager"
+
+# 落 dotfiles
+[file."~/.config/starship.toml"]
+mode = "replace"
+content = '''...'''
+
+[file."~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"]
+mode = "append"
+content = '''
+Set-Alias ll Get-ChildItem -Force
+Invoke-Expression (&starship init powershell)
+'''
+
+[meta]
+requires = ["main/foundation", "main/cli-tools", "main/fonts"]
+```
+
+存到你自己的 bp source repo（如 `~/dotfiles-bp/blueprints/onboarding.toml`），
+注册 + 应用：
+
+```pwsh
+luban bp src add D:\dotfiles-bp --name me
+luban bp apply me/onboarding
+```
+
+新机器流程：`irm install.ps1 | iex` → installer 自动 apply foundation +
+prompt cpp-toolchain → `luban bp apply main/cli-tools main/fonts me/onboarding`
+就回来了。网络给力的话 ~3 分钟。
 
 ## 它是什么
 

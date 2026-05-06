@@ -9,23 +9,20 @@
 #include "store.hpp"
 
 #include <chrono>
-#include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <format>
 #include <fstream>
 #include <iomanip>
-#include <mutex>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
 #include <system_error>
 
 #ifdef _WIN32
-#include <io.h>       // _isatty / _fileno
 #include <process.h>  // _getpid
 #else
-#include <unistd.h>   // ::isatty / getpid
+#include <unistd.h>   // getpid
 #endif
 
 #include "json.hpp"
@@ -35,6 +32,7 @@
 #include "hash.hpp"
 #include "log.hpp"
 #include "paths.hpp"
+#include "progress.hpp"
 
 namespace luban::store {
 
@@ -45,84 +43,6 @@ namespace fs = std::filesystem;
 constexpr const char* kMarkerName = ".store-marker.json";
 
 fs::path store_root() { return paths::data_dir() / "store"; }
-
-// Item-counter progress bar for archive::extract. Mirrors download.cpp's
-// Progress class (TTY default + LUBAN_PROGRESS / LUBAN_NO_PROGRESS env
-// overrides + 100ms render throttle + \r\x1b[2K clear-line) but counts
-// extracted files instead of bytes — extract has no global byte total to
-// chase, just N entries to enumerate.
-//
-// Why duplicated rather than extracted to a shared header: the byte vs.
-// item formatter divergence + the rest of the class is ~50 lines. Refactor
-// to shared `progress.hpp` if a third caller appears.
-//
-// Thread safety: callbacks fire from N parallel extract workers. The mutex
-// serializes render + last-time read; throttling means actual stderr writes
-// happen at most ~10 fps even with hundreds of cb invocations per second
-// (so contention is negligible — workers block ~1ms per 100ms window).
-class ExtractProgress {
-public:
-    explicit ExtractProgress(std::string lbl)
-        : label_(std::move(lbl)),
-          t0_(std::chrono::steady_clock::now()), last_(t0_) {
-#ifdef _WIN32
-        bool tty = _isatty(_fileno(stderr));
-#else
-        bool tty = ::isatty(2);
-#endif
-        bool force_on  = std::getenv("LUBAN_PROGRESS") != nullptr;
-        bool force_off = std::getenv("LUBAN_NO_PROGRESS") != nullptr;
-        enabled_ = (tty || force_on) && !force_off;
-    }
-
-    void update(std::size_t done, std::size_t total) {
-        if (!enabled_) return;
-        std::lock_guard<std::mutex> g(mu_);
-        auto now = std::chrono::steady_clock::now();
-        bool finished = (total > 0 && done >= total);
-        if (!finished) {
-            auto dt = std::chrono::duration<double>(now - last_).count();
-            if (dt < 0.1) return;
-        }
-        last_ = now;
-        render(now, done, total);
-    }
-
-    void finish() {
-        if (!enabled_) return;
-        std::lock_guard<std::mutex> g(mu_);
-        std::fprintf(stderr, "\r\x1b[2K");
-        std::fflush(stderr);
-    }
-
-private:
-    void render(std::chrono::steady_clock::time_point now,
-                std::size_t done, std::size_t total) {
-        double elapsed = std::chrono::duration<double>(now - t0_).count();
-        if (elapsed < 1e-3) elapsed = 1e-3;
-        double rate = static_cast<double>(done) / elapsed;
-        std::string line;
-        if (total > 0) {
-            double pct = 100.0 * static_cast<double>(done) / static_cast<double>(total);
-            constexpr int W = 24;
-            int filled = static_cast<int>(W * static_cast<double>(done) / static_cast<double>(total));
-            std::string bar;
-            for (int i = 0; i < W; ++i) bar += (i < filled ? "#" : "\xc2\xb7");
-            line = std::format("  [{}] {:5.1f}%  {}/{} files  {:.0f}/s  {}",
-                               bar, pct, done, total, rate, label_);
-        } else {
-            line = std::format("  {} files  {:.0f}/s  {}", done, rate, label_);
-        }
-        std::fprintf(stderr, "\r\x1b[2K%s", line.c_str());
-        std::fflush(stderr);
-    }
-
-    std::string label_;
-    std::chrono::steady_clock::time_point t0_;
-    std::chrono::steady_clock::time_point last_;
-    std::mutex mu_;
-    bool enabled_ = false;
-};
 
 fs::path tmp_extract_dir(std::string_view artifact_id) {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
@@ -214,23 +134,31 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
                                tmp.string() + ": " + ec.message());
     }
 
-    auto t_extract = std::chrono::steady_clock::now();
-    // ExtractProgress draws a live bar to stderr (TTY by default, override
-    // with LUBAN_PROGRESS / LUBAN_NO_PROGRESS). The "extracting <archive>"
-    // banner that used to live here is now subsumed by the bar's label —
-    // printing both leaves a ghost line above the live progress.
-    ExtractProgress prog("extracting " + archive_path.filename().string());
+    // luban::progress::Bar shares format with download.cpp's fetch bar —
+    // unified UI language across phases. archive::extract reports
+    // (done, total) per successfully-extracted entry; total is known
+    // up front (after enumeration) so we lazily construct the Bar on
+    // the first cb call, then feed it deltas.
+    std::optional<luban::progress::Bar> prog;
+    std::size_t last_done = 0;
     auto extract = archive::extract(archive_path, tmp,
-        [&prog](std::size_t done, std::size_t total) { prog.update(done, total); });
-    prog.finish();
+        [&](std::size_t done, std::size_t total) {
+            if (!prog) {
+                prog.emplace(luban::progress::Action::extract(),
+                             static_cast<std::int64_t>(total),
+                             luban::progress::Unit::Items,
+                             archive_path.filename().string());
+            }
+            prog->update(done > last_done ? done - last_done : 0);
+            last_done = done;
+        });
     if (!extract) {
+        if (prog) prog->abandon();
         fs::remove_all(tmp, ec);
         return std::unexpected("extract failed (archive=" + archive_path.string() +
                                "): " + extract.error().message);
     }
-    auto dt_extract = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - t_extract).count();
-    log::infof("  extracted {} in {:.1f}s", archive_path.filename().string(), dt_extract);
+    if (prog) prog->finish_done();
 
     // Step 3: marker. Records what we put there for future debugging /
     // GC / version reconciliation. Format is JSON for jq-friendliness.

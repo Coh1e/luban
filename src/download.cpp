@@ -8,6 +8,7 @@
 #include <format>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
@@ -26,6 +27,7 @@
 #include "luban/version.hpp"
 
 #include "log.hpp"
+#include "progress.hpp"
 
 namespace luban::download {
 
@@ -65,86 +67,11 @@ std::string apply_mirror(const std::string& url) {
 }
 
 // ---- Progress bar (stderr, TTY only) ----
-// Cross-platform: uses cstdio + chrono only. Both Win32 (do_request) and
-// POSIX (libcurl-backed download) populate it via the sink callback.
-struct Progress {
-    std::string label;
-    int64_t total = -1;       // -1 = 未知（Content-Length 缺失）
-    int64_t done = 0;
-    std::chrono::steady_clock::time_point t0;
-    std::chrono::steady_clock::time_point last;
-    bool enabled = false;
-
-    Progress(std::string lbl, int64_t total_bytes) : label(std::move(lbl)), total(total_bytes) {
-        t0 = std::chrono::steady_clock::now();
-        last = t0;
-        // TTY by default; LUBAN_PROGRESS=1 forces on (CI / wrapped shells
-        // that swallow isatty); LUBAN_NO_PROGRESS=1 forces off.
-        bool tty = _isatty(_fileno(stderr));
-        bool force_on  = std::getenv("LUBAN_PROGRESS") != nullptr;
-        bool force_off = std::getenv("LUBAN_NO_PROGRESS") != nullptr;
-        enabled = (tty || force_on) && !force_off;
-    }
-
-    static std::string format_bytes(int64_t n) {
-        const char* units[] = {"B", "KiB", "MiB", "GiB"};
-        double f = static_cast<double>(n);
-        int u = 0;
-        while (f >= 1024.0 && u < 3) { f /= 1024.0; ++u; }
-        if (u == 0) return std::format("{} B", n);
-        return std::format("{:.1f} {}", f, units[u]);
-    }
-
-    void update(size_t n) {
-        done += static_cast<int64_t>(n);
-        if (!enabled) return;
-        auto now = std::chrono::steady_clock::now();
-        double dt = std::chrono::duration<double>(now - last).count();
-        bool finished = (total > 0 && done >= total);
-        if (dt < 0.1 && !finished) return;
-        last = now;
-        render(now);
-    }
-
-    void render(std::chrono::steady_clock::time_point now) {
-        double elapsed = std::chrono::duration<double>(now - t0).count();
-        if (elapsed < 1e-3) elapsed = 1e-3;
-        double rate = static_cast<double>(done) / elapsed;
-        std::string rate_str = format_bytes(static_cast<int64_t>(rate)) + "/s";
-        std::string line;
-        if (total > 0) {
-            double pct = 100.0 * static_cast<double>(done) / static_cast<double>(total);
-            constexpr int W = 24;
-            int filled = static_cast<int>(W * static_cast<double>(done) / total);
-            std::string bar;
-            for (int i = 0; i < W; ++i) bar += (i < filled ? "#" : "\xc2\xb7");
-            line = std::format("  [{}] {:5.1f}%  {}/{}  {}  {}",
-                               bar, pct, format_bytes(done), format_bytes(total),
-                               rate_str, label);
-        } else {
-            line = std::format("  {}  {}  {}", format_bytes(done), rate_str, label);
-        }
-        // Clear-line each frame so a shrinking line doesn't leave
-        // tails (e.g. " ninja-w" stuck after the bar shifts to
-        // "downloaded 9.7 MiB ..."). Same VT consideration as
-        // finish(); legacy cmd.exe sees the literal escape but the
-        // bar still lands.
-        std::fprintf(stderr, "\r\x1b[2K%s", line.c_str());
-        std::fflush(stderr);
-    }
-
-    void finish() {
-        if (!enabled) return;
-        // ANSI '\x1b[2K' clears the entire line regardless of width;
-        // the fixed-width 100-space form left tails when the rendered
-        // line was longer (chunked-mode label + multi-MB byte counts
-        // routinely run >100 chars). Win10+ Conhost has VT processing
-        // on for new shells; the few legacy cmd.exe windows that don't
-        // will print the literal escape (cosmetic only, not breaking).
-        std::fprintf(stderr, "\r\x1b[2K");
-        std::fflush(stderr);
-    }
-};
+// Live progress for downloads now lives in src/progress.{hpp,cpp} as
+// luban::progress::Bar — same class is reused by archive::extract via
+// store_fetch.cpp, giving a unified UI language across phases. See
+// progress.hpp for the format spec ("↓ fetch [▓▓▓░░░] 73% 2.9/4.0 MiB
+// @ 3.0 MiB/s" live, "✓ fetch 4.0 MiB in 1.3s @ 3.0 MiB/s" on done).
 
 // ---- Stall watchdog -------------------------------------------------------
 // Real-world failure mode (VN -> github.com release CDN, 2026-05-06): a
@@ -667,14 +594,12 @@ std::expected<int64_t, Error> download_chunked(
                n, (per + 1024 * 1024 - 1) / (1024 * 1024));
 
     // Shared live progress: each worker thread reports bytes written via
-    // on_bytes; a mutex serializes Progress::update calls (which throttles
-    // its own re-render to 0.1 s, so contention is bounded).
-    Progress prog(label, total);
-    std::mutex prog_m;
-    auto on_bytes = [&](size_t k) {
-        std::lock_guard<std::mutex> g(prog_m);
-        prog.update(k);
-    };
+    // on_bytes. luban::progress::Bar is internally synchronized + 0.1s
+    // throttled so worker contention is bounded.
+    luban::progress::Bar prog(luban::progress::Action::fetch(),
+                              total, luban::progress::Unit::Bytes,
+                              label);
+    auto on_bytes = [&](size_t k) { prog.update(k); };
 
     for (int i = 0; i < n; ++i) {
         threads.emplace_back([&, i] {
@@ -684,7 +609,7 @@ std::expected<int64_t, Error> download_chunked(
         });
     }
     for (auto& t : threads) t.join();
-    prog.finish();
+    prog.finish_done();
 
     int64_t total_written = 0;
     for (int i = 0; i < n; ++i) {
@@ -879,19 +804,10 @@ std::expected<int64_t, Error> do_request(
 std::expected<DownloadResult, Error> download(
     const std::string& url_in, const fs::path& dest, const DownloadOptions& opts) {
     const std::string url = apply_mirror(url_in);
-    auto t_start = std::chrono::steady_clock::now();
-    auto summary = [&](int64_t bytes) {
-        double dt = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - t_start).count();
-        if (dt < 1e-3) dt = 1e-3;
-        double rate = static_cast<double>(bytes) / dt;
-        // log::ok prepends its own green ✓; don't duplicate it in the
-        // body. Indent with two spaces to slot under the "[i/N] tool"
-        // step header from blueprint_apply.
-        log::okf("  downloaded {} in {:.1f}s ({}/s)",
-                 Progress::format_bytes(bytes), dt,
-                 Progress::format_bytes(static_cast<int64_t>(rate)));
-    };
+    // Progress::Bar's finish_done() prints the unified "✓ fetch X in Ys
+    // @ rate" summary line itself, so we no longer compose one here.
+    // The bar's elapsed/rate counters are accurate end-to-end (start
+    // before any I/O, finish on the last successful byte).
 #ifdef _WIN32
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
@@ -947,7 +863,8 @@ std::expected<DownloadResult, Error> download(
             // Slight cost (~0.5s per 100 MB on SSD), only correct option.
             auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
             if (!promoted) return std::unexpected(promoted.error());
-            summary(*rc);
+            // chunked download_chunked already called Bar::finish_done()
+            // internally — no extra summary line here.
             return DownloadResult{*promoted, *rc};
         }
     }
@@ -976,11 +893,14 @@ std::expected<DownloadResult, Error> download(
         }
 
         StreamingSha256 sha;
-        std::optional<Progress> prog;
+        std::optional<luban::progress::Bar> prog;
 
         auto sink = [&](const unsigned char* data, size_t n, int64_t total)
             -> std::expected<void, Error> {
-            if (!prog) prog.emplace(label, total);
+            if (!prog) {
+                prog.emplace(luban::progress::Action::fetch(), total,
+                             luban::progress::Unit::Bytes, label);
+            }
             if (std::fwrite(data, 1, n, fp) != n) {
                 return std::unexpected(Error{ErrorKind::Io, "fwrite failed"});
             }
@@ -990,10 +910,10 @@ std::expected<DownloadResult, Error> download(
         };
 
         auto rc = do_request(url, opts.timeout_seconds, sink);
-        if (prog) prog->finish();
         std::fclose(fp);
 
         if (!rc.has_value()) {
+            if (prog) prog->abandon();
             last_err = rc.error();
             fs::remove(tmp, ec);
             // 4xx 不重试
@@ -1007,6 +927,7 @@ std::expected<DownloadResult, Error> download(
             continue;
         }
 
+        if (prog) prog->finish_done();
         // Single-stream path computed sha256 incrementally — pass to
         // verify_and_promote so it can skip the re-read for the sha256
         // check (the non-sha256 case still re-reads, by design).
@@ -1014,7 +935,6 @@ std::expected<DownloadResult, Error> download(
         auto promoted = verify_and_promote(
             tmp, dest, opts.expected_hash, url, actual_sha);
         if (!promoted) return std::unexpected(promoted.error());
-        summary(*rc);
         return DownloadResult{*promoted, *rc};
     }
     return std::unexpected(last_err);
@@ -1050,10 +970,13 @@ std::expected<DownloadResult, Error> download(
             return std::unexpected(Error{ErrorKind::Io, "fdopen failed"});
         }
 
-        std::optional<Progress> prog;
+        std::optional<luban::progress::Bar> prog;
         auto sink = [&](const unsigned char* data, size_t n, int64_t total)
             -> std::expected<void, Error> {
-            if (!prog) prog.emplace(label, total);
+            if (!prog) {
+                prog.emplace(luban::progress::Action::fetch(), total,
+                             luban::progress::Unit::Bytes, label);
+            }
             if (std::fwrite(data, 1, n, fp) != n) {
                 return std::unexpected(Error{ErrorKind::Io, "fwrite failed"});
             }
@@ -1062,10 +985,10 @@ std::expected<DownloadResult, Error> download(
         };
 
         auto rc = do_request(url, opts.timeout_seconds, sink);
-        if (prog) prog->finish();
         std::fclose(fp);
 
         if (!rc.has_value()) {
+            if (prog) prog->abandon();
             last_err = rc.error();
             fs::remove(tmp, ec);
             // 4xx not retried — server says it'll never succeed.
@@ -1079,11 +1002,11 @@ std::expected<DownloadResult, Error> download(
             continue;
         }
 
+        if (prog) prog->finish_done();
         // No streaming sha on POSIX yet — verify_and_promote recomputes
         // by re-reading. Future: parallel POSIX StreamingSha256 via EVP.
         auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
         if (!promoted) return std::unexpected(promoted.error());
-        summary(*rc);
         return DownloadResult{*promoted, *rc};
     }
     return std::unexpected(last_err);

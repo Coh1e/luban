@@ -93,28 +93,189 @@ The luban binary embeds **zero blueprints**. The foundation set
 [Coh1e/luban-bps](https://github.com/Coh1e/luban-bps). Anyone can publish
 their own blueprint source repo and `luban bp src add` it.
 
-### Blueprint schema (v0.2.0)
+### Blueprint cookbook
+
+Blueprints live in `<bp-source>/blueprints/<name>.{toml,lua}`. Singular
+TOML keys (`tool` / `config` / `file`) — the v0.2.0 schema (议题 P).
+Examples below are TOML; the Lua form is in `Coh1e/luban-bps`'s
+`onboarding.lua`.
+
+#### 1. The simplest bp — drop a tool on PATH
 
 ```toml
 schema = 1
-name = "my-bp"
-
-[tool.ripgrep]                          # one tool entry per binary you want on PATH
+name = "ripgrep"
+[tool.ripgrep]
 source = "github:BurntSushi/ripgrep"
-
-[config.git]                            # render a config file via the git renderer
-userName = "alice"
-
-[file."~/.config/starship.toml"]        # drop a literal file
-mode = "merge"                          # replace | drop-in | merge | append
-content = '{"add_newline": false}'
-
-[meta]
-requires = ["main/foundation"]          # enforced — apply order is explicit
 ```
 
-Singular keys (`tool` / `config` / `file`) — the v0.2.0 schema rename
-(议题 P) replaced the old plural form; old bps need to flip.
+`luban bp apply <src>/ripgrep` → fetch latest release zip → extract → shim
+`rg.exe` under `~/.local/bin/`. The asset scorer picks the right zip by
+host triplet; sha256 gets pinned into `<src>/blueprints/ripgrep.toml.lock`
+on first apply.
+
+#### 2. Multi-binary tool — explicit shim list
+
+```toml
+[tool.openssh]
+source = "github:PowerShell/Win32-OpenSSH"
+bin = "ssh.exe"
+shims = ["ssh.exe", "ssh-keygen.exe", "ssh-agent.exe", "scp.exe", "sftp.exe"]
+external_skip = "ssh.exe"      # if ssh is already on PATH (System32\OpenSSH), skip
+```
+
+`shim_dir = "bin"` is the auto-discover variant — every `*.exe` under
+`bin/` gets a shim (used by `cpp-toolchain` for llvm-mingw's ~270
+binaries; `shims` would go stale across upstream releases).
+
+#### 3. Tool that bootstraps itself — `post_install` script
+
+```toml
+[tool.vcpkg]
+source = "github:microsoft/vcpkg"      # source-zip fallback (no release artifacts)
+bin = "vcpkg.exe"
+post_install = "bootstrap-vcpkg.bat"   # path inside the extracted artifact
+```
+
+post_install runs once on fresh extraction (cwd = artifact root, on
+Windows wrapped via `cmd /c`). vcpkg ships its own bootstrap script so
+this works out of the box. For tools whose upstream zip ships *only*
+the payload (no install logic — e.g. font files), use `bp:` prefix:
+
+```toml
+[tool.maple-mono]
+source = "github:subframe7536/maple-font"
+no_shim = true                          # not a CLI binary; nothing for PATH
+post_install = "bp:scripts/register-fonts.ps1"
+# bp:<rel> resolves against the bp-source-repo root, not the artifact.
+# The script lives in YOUR bp source's scripts/, not the upstream zip.
+```
+
+Real bp: `Coh1e/luban-bps/blueprints/fonts.toml`. Registers all `.ttf`
+in the artifact under HKCU\…\Fonts + AddFontResourceEx (per-user, no UAC).
+
+#### 4. Configure a tool — render a dotfile
+
+```toml
+[config.git]                            # uses the built-in `git` renderer
+userName = "alice"
+userEmail = "alice@example.com"
+lfs = true                              # adds [filter "lfs"] block
+[config.git.aliases]
+co = "checkout"
+br = "branch"
+```
+
+Built-in renderers: `git` / `bat` / `fastfetch` / `yazi` / `delta`.
+Output drops to `~/.gitconfig.d/<bp>.gitconfig` (drop-in mode); user
+`[include]`s the dir from their main `~/.gitconfig` once. Custom
+renderers via Lua blueprints land in v0.3.0 (议题 M(d)).
+
+#### 5. Drop a literal config file (4 modes)
+
+```toml
+# (a) replace: overwrite target, back up original on first apply
+[file."~/.config/starship.toml"]
+mode = "replace"
+content = '''
+add_newline = false
+[character]
+success_symbol = "[❯](bold green)"
+'''
+
+# (b) drop-in: write to <canonical>.d/<bp> alongside the user's main file
+[file."~/.gitconfig.d/work-aliases.gitconfig"]
+mode = "drop-in"
+content = "[alias]\n    co = checkout\n"
+
+# (c) merge: JSON Merge Patch (RFC 7396) — preserve untouched keys,
+#     update only what you specify. Use case: WT settings.json themes
+#     section without clobbering the rest of the file.
+[file."~/AppData/Local/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/settings.json"]
+mode = "merge"
+content = '''
+{
+  "profiles": {
+    "defaults": {
+      "font": { "face": "Maple Mono NF CN", "size": 11 }
+    }
+  }
+}
+'''
+
+# (d) append: bracket content in a luban marker block keyed by bp name —
+#     re-applies replace the block in place; idempotent. Multi-bp
+#     coordination on shared files like profile.ps1 just works.
+[file."~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"]
+mode = "append"
+content = '''
+Invoke-Expression (& { (zoxide init powershell | Out-String) })
+Invoke-Expression (&starship init powershell)
+'''
+```
+
+#### 6. Layered bps — `meta.requires`
+
+```toml
+[meta]
+requires = ["main/foundation", "main/cli-tools"]   # enforced at apply time
+conflicts = ["main/legacy-cpp-base"]               # advisory (planned)
+```
+
+If `main/foundation` isn't in the current generation, `bp apply` fails
+with the exact `luban bp apply main/foundation` line you need to run
+first. install.ps1's two-phase bootstrap (foundation no-prompt,
+cpp-toolchain prompted) keeps the gate satisfied for new boxes.
+
+#### 7. Personal onboarding bp pattern
+
+A common shape for one-shot machine setup:
+
+```toml
+schema = 1
+name = "onboarding"
+description = "Win11 personal setup"
+
+# Pull tools that don't live in the foundation layers
+[tool.gh]
+source = "github:cli/cli"
+[tool.lazygit]
+source = "github:jesseduffield/lazygit"
+
+# Configure things foundation already installed
+[config.git]
+userName = "Coh1e"
+userEmail = "you@example.com"
+[config.git.credential]
+helper = "manager"
+
+# Drop your dotfiles
+[file."~/.config/starship.toml"]
+mode = "replace"
+content = '''...'''
+
+[file."~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"]
+mode = "append"
+content = '''
+Set-Alias ll Get-ChildItem -Force
+Invoke-Expression (&starship init powershell)
+'''
+
+[meta]
+requires = ["main/foundation", "main/cli-tools", "main/fonts"]
+```
+
+Save under your own bp source repo (e.g. `~/dotfiles-bp/blueprints/onboarding.toml`),
+register + apply:
+
+```pwsh
+luban bp src add D:\dotfiles-bp --name me
+luban bp apply me/onboarding
+```
+
+A new machine: `irm install.ps1 | iex` → installer auto-applies foundation
++ prompts cpp-toolchain → `luban bp apply main/cli-tools main/fonts me/onboarding`
+and you're back. ~3 minutes if the network behaves.
 
 ## Documentation
 

@@ -87,6 +87,59 @@ function Mirror-Url($u) {
 # missing — extremely unlikely on Win10 1803+ but defensive doesn't hurt.
 $curlExe = (Get-Command curl.exe -ErrorAction SilentlyContinue)?.Source
 
+# Unified progress UI — matches the bar luban itself draws during
+# `bp apply` (luban::progress::Bar in src/progress.{hpp,cpp}). Same column
+# layout, same glyphs (↓ fetch / ✓ fetch), same `@ rate` tail, same
+# format_bytes, same 1024-base units. Goal: install.ps1 download and
+# `luban bp apply` download FEEL like one tool, not two.
+$ESC = [char]27   # bare backtick-e doesn't survive on Windows PowerShell 5.x
+$ARROW_DOWN = [char]0x2193  # ↓
+$CHECK      = [char]0x2713  # ✓
+$BLK_FULL   = [char]0x2593  # ▓ filled bar cell
+$BLK_LIGHT  = [char]0x2591  # ░ empty bar cell
+
+function Format-LubanBytes([int64]$n) {
+    if ($n -lt 1024)        { return "$n B" }
+    if ($n -lt 1048576)     { return '{0:N1} KiB' -f ($n / 1024.0) }
+    if ($n -lt 1073741824)  { return '{0:N1} MiB' -f ($n / 1048576.0) }
+    return '{0:N1} GiB' -f ($n / 1073741824.0)
+}
+
+function Get-ContentLength([string]$url) {
+    try {
+        $r = Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing -TimeoutSec 30
+        $cl = $r.Headers['Content-Length']
+        if ($cl) { return [int64]($cl | Select-Object -First 1) }
+    } catch {}
+    return -1
+}
+
+function Write-LubanBar([string]$Action, [int64]$Done, [int64]$Total, [double]$Rate) {
+    $verb = ('{0} {1}' -f $ARROW_DOWN, $Action).PadRight(11)
+    $rateStr = (Format-LubanBytes ([int64]$Rate)) + '/s'
+    if ($Total -gt 0) {
+        $pct = [int](100 * $Done / $Total)
+        $W = 12
+        $filled = [Math]::Min($W, [int]($W * $Done / $Total))
+        $bar = ([string]$BLK_FULL * $filled) + ([string]$BLK_LIGHT * ($W - $filled))
+        $line = '  {0}[{1}] {2,3}%  {3}/{4}  @ {5}' -f $verb, $bar, $pct,
+            (Format-LubanBytes $Done), (Format-LubanBytes $Total), $rateStr
+    } else {
+        $line = '  {0}{1}  @ {2}' -f $verb, (Format-LubanBytes $Done), $rateStr
+    }
+    [Console]::Error.Write("`r$ESC[2K$line")
+}
+
+function Write-LubanDoneFetch([int64]$Bytes, [double]$Seconds, [double]$Rate) {
+    $verb = ('{0} fetch' -f $CHECK).PadRight(11)
+    $rateStr = (Format-LubanBytes ([int64]$Rate)) + '/s'
+    $secStr = if ($Seconds -lt 1) { '{0:N0}ms' -f ($Seconds * 1000) }
+              elseif ($Seconds -lt 60) { '{0:N1}s' -f $Seconds }
+              else { '{0}m {1}s' -f [int]($Seconds / 60), [int]($Seconds % 60) }
+    $line = "  $verb$(Format-LubanBytes $Bytes) in $secStr @ $rateStr"
+    [Console]::Error.WriteLine("`r$ESC[2K$line")
+}
+
 # VN/CN networks regularly get TCP RST mid-download against GitHub's
 # release CDN (curl exit 56). Retry with exponential backoff + curl's
 # `-C -` so the next attempt resumes from the partial .part file rather
@@ -104,33 +157,54 @@ function Download-File($url, $dest) {
             Start-Sleep -Seconds $sleep
         }
         if ($curlExe) {
-            # -fSL: fail on HTTP error, follow redirects, show errors.
-            # -C -: resume from existing $dest size (0 on first attempt = normal GET;
-            #       N on retry = Range request from byte N, server has to honor it
-            #       and GitHub's S3-backed CDN does).
-            # --connect-timeout: bound initial TCP+TLS handshake separately so we
-            #       don't burn the whole --max-time on a stuck connect.
-            # --max-time bumped from 300 to 900 — slow VN networks need it for the
-            #       6 MB MinGW asset.
-            # No `-#` — that strips the verbose meter (% / total / Dload / ETA)
-            # down to a bare hash bar with no context, which felt worse than
-            # the v0.1.6 silent-then-done UX. curl's default 4-line meter is
-            # informative AND animates live thanks to Start-Process below.
-            #
-            # Use Start-Process -NoNewWindow so curl's stderr writes straight to
-            # the inherited console TTY. With `& $curl` PowerShell intercepts
-            # stderr and only flushes on exit, which makes the live progress
-            # appear "all at once at the end" — bad UX.
-            $proc = Start-Process -FilePath $curlExe -NoNewWindow -Wait -PassThru `
+            # Pre-fetch Content-Length so the bar can render percentage from the
+            # first frame. HEAD failure → bar falls back to "running count + rate"
+            # without pct, gracefully.
+            $totalBytes = Get-ContentLength $url
+            $startBytes = if (Test-Path $dest) { (Get-Item $dest).Length } else { 0 }
+            $t0 = Get-Date
+
+            # curl runs silent in the background — we render the bar ourselves
+            # in PowerShell by polling the .part file size every 100ms. -C - lets
+            # a retry resume from the bytes the last attempt left on disk; the
+            # `done` shown to the bar is `(file size now) - startBytes` so the
+            # rate reflects THIS attempt's throughput, not cumulative.
+            $stderrTmp = [System.IO.Path]::GetTempFileName()
+            $proc = Start-Process -FilePath $curlExe -NoNewWindow -PassThru `
+                -RedirectStandardError $stderrTmp `
                 -ArgumentList @(
-                    '-fSL',
+                    '-fsSL',
                     '--connect-timeout', '30', '--max-time', '900',
                     '-C', '-',
                     '-A', 'luban-installer',
                     '-o', $dest, $url
                 )
-            if ($proc.ExitCode -eq 0) { return }
-            $lastError = "curl exit $($proc.ExitCode)"
+            while (-not $proc.HasExited) {
+                Start-Sleep -Milliseconds 100
+                $sizeNow = if (Test-Path $dest) { (Get-Item $dest).Length } else { 0 }
+                $dt = ((Get-Date) - $t0).TotalSeconds
+                if ($dt -lt 0.001) { $dt = 0.001 }
+                $thisAttemptBytes = $sizeNow - $startBytes
+                $rate = $thisAttemptBytes / $dt
+                Write-LubanBar 'fetch' $sizeNow $totalBytes $rate
+            }
+            if ($proc.ExitCode -eq 0) {
+                $finalSize = (Get-Item $dest).Length
+                $dt = ((Get-Date) - $t0).TotalSeconds
+                if ($dt -lt 0.001) { $dt = 0.001 }
+                $rate = ($finalSize - $startBytes) / $dt
+                Write-LubanDoneFetch $finalSize $dt $rate
+                Remove-Item $stderrTmp -ErrorAction SilentlyContinue
+                return
+            }
+            # curl failed — clear the live bar, surface curl's stderr text,
+            # then loop into retry.
+            [Console]::Error.Write("`r$ESC[2K")
+            $curlMsg = if (Test-Path $stderrTmp) {
+                (Get-Content $stderrTmp -Raw -ErrorAction SilentlyContinue).Trim()
+            } else { '' }
+            Remove-Item $stderrTmp -ErrorAction SilentlyContinue
+            $lastError = "curl exit $($proc.ExitCode)" + $(if ($curlMsg) { ": $curlMsg" })
         } else {
             try {
                 Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900
