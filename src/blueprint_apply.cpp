@@ -548,7 +548,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     }
     log::okf("applied generation {} ({} tool(s), {} config(s), {} file(s))",
              next_id, result.tools_fetched + result.tools_external,
-             total_progs, total_files);
+             total_cfgs, total_files);
     return result;
 }
 
