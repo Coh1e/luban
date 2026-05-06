@@ -67,9 +67,11 @@ if ($mirror) { $mirror = $mirror.TrimEnd('/') }
 
 function Mirror-Url($u) {
     if (-not $mirror) { return $u }
+    # api.github.com is NOT proxied by ghfast.top / gh-proxy.com (they
+    # 403 it). The release JSON is small enough that a direct hit works
+    # even on slow links; only the big asset downloads need the mirror.
     $hosts = @(
         'https://github.com/',
-        'https://api.github.com/',
         'https://raw.githubusercontent.com/',
         'https://objects.githubusercontent.com/',
         'https://codeload.github.com/'

@@ -43,9 +43,12 @@ constexpr size_t kChunk = 1 << 16;        // 64 KiB
 std::string apply_mirror(const std::string& url) {
     const char* env = std::getenv("LUBAN_GITHUB_MIRROR_PREFIX");
     if (!env || !*env) return url;
+    // api.github.com is NOT proxied by ghfast.top / gh-proxy.com (they
+    // 403 it). luban hits the API for release discovery during source
+    // resolve, but the JSON is small enough that direct works even on
+    // slow links; mirror only the bulk download paths.
     static const char* hosts[] = {
         "https://github.com/",
-        "https://api.github.com/",
         "https://raw.githubusercontent.com/",
         "https://objects.githubusercontent.com/",
         "https://codeload.github.com/",
