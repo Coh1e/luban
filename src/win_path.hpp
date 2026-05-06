@@ -3,6 +3,7 @@
 // 写完广播 WM_SETTINGCHANGE，让已开窗口的 cmd / explorer 拿到新值。
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,5 +25,11 @@ std::vector<std::string> read_user_path();
 // 写完广播 WM_SETTINGCHANGE。
 bool set_user_env(const std::string& name, const std::string& value, bool expand = false);
 bool unset_user_env(const std::string& name);
+
+// 读 HKCU\Environment\<name>。Missing → nullopt。Used by `self uninstall`
+// to gate `unset_user_env` on ownership checks: if the user pointed
+// VCPKG_ROOT / EM_CONFIG / msvc-captured vars at a non-luban directory,
+// luban must NOT clear them on uninstall.
+std::optional<std::string> get_user_env(const std::string& name);
 
 }  // namespace luban::win_path

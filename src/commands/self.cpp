@@ -242,93 +242,202 @@ void spawn_self_delete_batch(const std::vector<fs::path>& targets) {
 }
 #endif
 
-int run_uninstall(bool yes, bool keep_data) {
-    if (!yes) {
+// True iff `p` is lexically inside one of luban's four canonical homes.
+// Used by safe_unset_user_env / safe_remove_path_entry to gate destructive
+// HKCU edits on ownership: if the user pointed VCPKG_ROOT (or any
+// msvc-captured env var) at a directory outside luban's data/cache/state/
+// config trees, luban must NOT clear it on uninstall.
+bool is_inside_luban_dirs(const fs::path& p) {
+    if (p.empty()) return false;
+    fs::path probe;
+    try {
+        probe = p.lexically_normal();
+    } catch (...) {
+        return false;
+    }
+    auto under = [&](const fs::path& root) -> bool {
+        if (root.empty()) return false;
+        fs::path normalized_root = root.lexically_normal();
+        auto rel = probe.lexically_relative(normalized_root);
+        std::string rs = rel.string();
+        return !rs.empty() && rs != "." && rs.rfind("..", 0) != 0;
+    };
+    return under(paths::data_dir()) || under(paths::cache_dir()) ||
+           under(paths::state_dir()) || under(paths::config_dir());
+}
+
+// Unset HKCU\Environment\<name> only if its current value points inside
+// luban's own dirs. Names with no recorded value are unset unconditionally
+// (no possible side effect on user data). Returns true if we actually
+// unset something, false if we preserved (with a log line either way).
+bool safe_unset_user_env(const std::string& name) {
+    auto cur = win_path::get_user_env(name);
+    if (!cur) {
+        // Not present in HKCU — nothing to do. Silent (the common case
+        // for LUBAN_* on most installs).
+        return false;
+    }
+    if (cur->empty()) {
+        // Empty value — degenerate case, just clear.
+        win_path::unset_user_env(name);
+        return true;
+    }
+    // Heuristic: treat the whole value as a path. PATH-list-style
+    // multi-segment values (e.g. someone hand-crafted VCPKG_ROOT="a;b")
+    // are rejected by `is_inside_luban_dirs` and preserved — that's
+    // fine; the user clearly hand-rolled it and we don't own it.
+    if (!is_inside_luban_dirs(fs::path(*cur))) {
+        log::infof("preserving HKCU {}={} (points outside luban dirs)",
+                   name, *cur);
+        return false;
+    }
+    win_path::unset_user_env(name);
+    log::infof("unset HKCU {}", name);
+    return true;
+}
+
+// Same ownership gate for HKCU PATH segment removal. Used for msvc-captured
+// PATH entries — the user might have re-pointed them at a system MSVC
+// install after luban captured a different one.
+bool safe_remove_user_path(const fs::path& dir) {
+    if (dir.empty()) return false;
+    if (!is_inside_luban_dirs(dir)) {
+        log::infof("preserving HKCU PATH entry {} (outside luban dirs)",
+                   dir.string());
+        return false;
+    }
+    return win_path::remove_from_user_path(dir);
+}
+
+struct UninstallOptions {
+    bool yes = false;
+    bool keep_data = false;         // skip ALL dir wipes + skip self-delete
+    bool keep_toolchains = false;   // skip <data>/{toolchains,bin} + <cache> + skip self-delete
+};
+
+int run_uninstall(const UninstallOptions& opts) {
+    if (!opts.yes) {
         log::warn("`luban self uninstall` is destructive. Re-run with --yes to confirm.");
         log::info("This will:");
-        log::info("  - remove bin_dir (<data>/bin) from HKCU PATH");
-        log::info("  - unset HKCU VCPKG_ROOT and legacy LUBAN_* env vars");
-        if (!keep_data) {
-            log::info("  - delete <data>/<cache>/<state>/<config> (toolchains + caches + registry)");
-        } else {
+        log::info("  - remove luban-owned entries from HKCU PATH");
+        log::info("  - unset HKCU env vars whose value points inside luban dirs");
+        log::info("    (VCPKG_ROOT / EM_CONFIG / msvc captures pointing elsewhere are preserved)");
+        if (opts.keep_data) {
             log::info("  - keep <data>/<cache>/<state>/<config> (--keep-data)");
+        } else if (opts.keep_toolchains) {
+            log::info("  - wipe <data>/{store,bp_sources,registry,env} + <state> + <config>");
+            log::info("  - keep <data>/{toolchains,bin} + <cache> (--keep-toolchains)");
+        } else {
+            log::info("  - delete <data>/<cache>/<state>/<config> (toolchains + caches + registry)");
         }
-        log::info("  - schedule luban.exe + luban-shim.exe self-delete in ~1-2s");
-        log::info("Use --keep-data to preserve toolchains + cache.");
+        if (opts.keep_data || opts.keep_toolchains) {
+            log::info("  - keep luban.exe + luban-shim.exe in place");
+        } else {
+            log::info("  - schedule luban.exe + luban-shim.exe self-delete in ~1-2s");
+        }
+        log::info("Flags: --keep-data (full preserve) | --keep-toolchains (clean bp state only)");
         return 1;
     }
 
     // 1. Report what's about to vanish so the user has one last chance to bail
     //    (mostly informational; --yes already committed).
     log::step("cleanup plan");
-    if (!keep_data) {
-        log_dir_size(paths::data_dir());
-        log_dir_size(paths::cache_dir());
-        log_dir_size(paths::state_dir());
-        log_dir_size(paths::config_dir());
+    if (!opts.keep_data) {
+        if (opts.keep_toolchains) {
+            // Only the dirs we're about to actually remove.
+            for (const char* sub : {"store", "bp_sources", "registry", "env"}) {
+                log_dir_size(paths::data_dir() / sub);
+            }
+            log_dir_size(paths::state_dir());
+            log_dir_size(paths::config_dir());
+        } else {
+            log_dir_size(paths::data_dir());
+            log_dir_size(paths::cache_dir());
+            log_dir_size(paths::state_dir());
+            log_dir_size(paths::config_dir());
+        }
     }
 
-    // 2. Reverse env --user. bin_dir is luban-owned (<data>/bin), so we
-    //    remove it from HKCU PATH unconditionally. Older v0.1.x style.
-    log::step("removing HKCU PATH + env vars");
-    win_path::remove_from_user_path(paths::bin_dir());
+    // 2. HKCU env vars. Read msvc captures BEFORE we wipe state_dir
+    //    (msvc-env.json lives there).
+    log::step("HKCU PATH + env vars");
+    auto msvc_cap = msvc_env::load();
+
+    // bin_dir is luban-owned by construction. With keep_toolchains we
+    // intentionally leave it on PATH so the user's shimmed tools keep
+    // working post-cleanup.
+    if (!opts.keep_toolchains) {
+        win_path::remove_from_user_path(paths::bin_dir());
+    }
+    // LUBAN_* always belong to luban — ownership check can't fail. Use
+    // the same safe wrapper anyway for consistent logging.
     for (const char* name : {"LUBAN_DATA", "LUBAN_CACHE", "LUBAN_STATE", "LUBAN_CONFIG"}) {
-        win_path::unset_user_env(name);
+        safe_unset_user_env(name);
     }
-    win_path::unset_user_env("VCPKG_ROOT");
-    win_path::unset_user_env("EM_CONFIG");
+    safe_unset_user_env("VCPKG_ROOT");
+    safe_unset_user_env("EM_CONFIG");
 
-    // MSVC Phase 2: same cleanup `luban env --unset-user` does. Reads
-    // msvc-env.json (lives under <state>, which we wipe below — so do this
-    // before the wipe), iterates captured var names, and removes each
-    // captured PATH entry from HKCU.
-    if (auto cap = msvc_env::load()) {
-        for (auto& [k, _] : cap->vars) win_path::unset_user_env(k);
-        std::string s = cap->path_addition;
+    if (msvc_cap) {
+        for (auto& [k, _] : msvc_cap->vars) safe_unset_user_env(k);
+        std::string s = msvc_cap->path_addition;
         size_t start = 0;
         while (start <= s.size()) {
             size_t end = s.find(';', start);
             if (end == std::string::npos) end = s.size();
             std::string dir = s.substr(start, end - start);
-            if (!dir.empty()) win_path::remove_from_user_path(dir);
+            if (!dir.empty()) safe_remove_user_path(fs::path(dir));
             if (end == s.size()) break;
             start = end + 1;
         }
     }
     log::ok("HKCU env cleaned");
 
-    // 3. Wipe luban-owned directories (data / cache / state / config). With
-    //    bin_dir = <data>/bin, the data wipe takes the shims with it, so we
-    //    don't need a separate selective-removal step.
-    if (!keep_data) {
+    // 3. Directory wipe. Three modes:
+    //   - keep_data:        no-op
+    //   - keep_toolchains:  selective — only luban-private subdirs of data
+    //                       + state + config; cache and toolchains/bin survive
+    //   - default:          all four dirs gone
+    if (opts.keep_data) {
+        log::info("--keep-data: all luban dirs preserved on disk");
+    } else if (opts.keep_toolchains) {
+        log::step("selective wipe (--keep-toolchains)");
+        for (const char* sub : {"store", "bp_sources", "registry", "env"}) {
+            wipe(paths::data_dir() / sub);
+        }
+        wipe(paths::state_dir());
+        wipe(paths::config_dir());
+        log::ok("bp state cleared; toolchains + cache preserved");
+    } else {
         log::step("removing luban directories");
         wipe(paths::data_dir());
         wipe(paths::cache_dir());
         wipe(paths::state_dir());
         wipe(paths::config_dir());
         log::ok("directories removed");
-    } else {
-        log::info("--keep-data: toolchains + caches preserved at <data>/etc.");
     }
 
-    // 5. Self-delete the binaries: luban.exe (the running one) plus any
-    //    sibling luban-shim.exe (build output / dev tree). The bin_dir copy
-    //    was wiped via the data_dir() pass above when --keep-data is false.
+    // 4. Self-delete only on the full uninstall path. Both keep_data and
+    //    keep_toolchains imply "user wants to keep using luban afterwards"
+    //    — self-delete would defeat that.
+    if (!opts.keep_data && !opts.keep_toolchains) {
 #ifdef _WIN32
-    fs::path self = self_exe_path();
-    std::vector<fs::path> targets = {self};
-    fs::path shim_sibling = self.parent_path() / "luban-shim.exe";
-    std::error_code ec;
-    if (fs::exists(shim_sibling, ec)) targets.push_back(shim_sibling);
-    log::step("scheduling self-delete (~1.5s)");
-    spawn_self_delete_batch(targets);
-    log::ok("done");
-    log::infof("luban will be removed shortly. Goodbye.");
+        fs::path self = self_exe_path();
+        std::vector<fs::path> targets = {self};
+        fs::path shim_sibling = self.parent_path() / "luban-shim.exe";
+        std::error_code ec;
+        if (fs::exists(shim_sibling, ec)) targets.push_back(shim_sibling);
+        log::step("scheduling self-delete (~1.5s)");
+        spawn_self_delete_batch(targets);
+        log::ok("done");
+        log::infof("luban will be removed shortly. Goodbye.");
 #else
-    fs::path self = self_exe_path();
-    std::error_code ec;
-    fs::remove(self, ec);  // best-effort; failure is non-fatal
+        fs::path self = self_exe_path();
+        std::error_code ec;
+        fs::remove(self, ec);  // best-effort; failure is non-fatal
 #endif
+    } else {
+        log::infof("luban.exe preserved; re-run anytime");
+    }
 
     return 0;
 }
@@ -343,9 +452,16 @@ int run_self(const cli::ParsedArgs& a) {
     const std::string& sub = a.positional[0];
     if (sub == "update") return run_update();
     if (sub == "uninstall") {
-        bool yes = a.flags.count("yes") && a.flags.at("yes");
-        bool keep = a.flags.count("keep-data") && a.flags.at("keep-data");
-        return run_uninstall(yes, keep);
+        UninstallOptions opts;
+        opts.yes = a.flags.count("yes") && a.flags.at("yes");
+        opts.keep_data = a.flags.count("keep-data") && a.flags.at("keep-data");
+        opts.keep_toolchains = a.flags.count("keep-toolchains") &&
+                               a.flags.at("keep-toolchains");
+        if (opts.keep_data && opts.keep_toolchains) {
+            log::err("--keep-data and --keep-toolchains are mutually exclusive");
+            return 2;
+        }
+        return run_uninstall(opts);
     }
     log::errf("unknown self subcommand: {} (expected update | uninstall)", sub);
     return 2;
@@ -364,19 +480,30 @@ void register_self() {
         "  running luban.exe. The previous binary is moved to luban.exe.old\n"
         "  and scheduled for delete-on-reboot.\n"
         "\n"
-        "  `luban self uninstall --yes` reverses every footprint:\n"
+        "  `luban self uninstall --yes` reverses luban's footprint:\n"
         "    - Remove bin_dir (<data>/bin) from HKCU PATH\n"
-        "    - Unset HKCU VCPKG_ROOT + legacy LUBAN_* env vars\n"
-        "    - Wipe <data>/<cache>/<state>/<config> (or --keep-data to skip)\n"
+        "    - Unset HKCU env vars whose value points inside luban dirs\n"
+        "      (VCPKG_ROOT / EM_CONFIG / msvc captures pointing elsewhere\n"
+        "       are PRESERVED — luban won't clobber a hand-rolled env)\n"
+        "    - Wipe <data>/<cache>/<state>/<config>\n"
         "    - Schedule luban.exe + sibling luban-shim.exe self-delete\n"
-        "  Refuses without --yes (destructive).";
-    c.flags = {"yes", "keep-data"};
+        "  Refuses without --yes (destructive).\n"
+        "\n"
+        "  Flags (mutually exclusive):\n"
+        "    --keep-data         skip ALL dir wipes; only env/PATH cleanup\n"
+        "                        (binary preserved; lighter than full uninstall)\n"
+        "    --keep-toolchains   wipe <data>/{store,bp_sources,registry,env}\n"
+        "                        + <state> + <config>; preserve\n"
+        "                        <data>/{toolchains,bin} + <cache> + binary\n"
+        "                        (use to reset bp state without losing dev env)";
+    c.flags = {"yes", "keep-data", "keep-toolchains"};
     c.n_positional = 1;
     c.positional_names = {"sub"};
     c.examples = {
         "luban self update\tFetch latest release, verify, swap binary",
         "luban self uninstall --yes\tFull cleanup of luban + toolchains",
-        "luban self uninstall --yes --keep-data\tRemove luban only; keep toolchains on disk",
+        "luban self uninstall --yes --keep-data\tEnv/PATH cleanup only; preserve disk",
+        "luban self uninstall --yes --keep-toolchains\tReset bp state; keep cmake/vcpkg",
     };
     c.run = run_self;
     cli::register_subcommand(std::move(c));

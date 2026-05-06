@@ -334,4 +334,35 @@ bool unset_user_env(const std::string& name) {
 #endif
 }
 
+std::optional<std::string> get_user_env(const std::string& name) {
+#ifdef _WIN32
+    HKEY key = nullptr;
+    LONG rc = RegOpenKeyExW(HKEY_CURRENT_USER, kEnvKey, 0, KEY_QUERY_VALUE, &key);
+    if (rc != ERROR_SUCCESS) return std::nullopt;
+    std::wstring wname = win::from_utf8(name);
+
+    DWORD type = 0;
+    DWORD size_bytes = 0;
+    rc = RegQueryValueExW(key, wname.c_str(), nullptr, &type, nullptr, &size_bytes);
+    if (rc != ERROR_SUCCESS) {
+        RegCloseKey(key);
+        return std::nullopt;
+    }
+    if (size_bytes == 0) {
+        RegCloseKey(key);
+        return std::string();
+    }
+    std::wstring buf(size_bytes / sizeof(wchar_t), L'\0');
+    rc = RegQueryValueExW(key, wname.c_str(), nullptr, &type,
+                          reinterpret_cast<LPBYTE>(buf.data()), &size_bytes);
+    RegCloseKey(key);
+    if (rc != ERROR_SUCCESS) return std::nullopt;
+    while (!buf.empty() && buf.back() == L'\0') buf.pop_back();
+    return win::to_utf8(buf);
+#else
+    (void)name;
+    return std::nullopt;
+#endif
+}
+
 }  // namespace luban::win_path
