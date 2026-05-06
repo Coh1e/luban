@@ -55,10 +55,9 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
   由 foundation 装），或只写 `tool.gh`（不配 gh）。这是 Windows 现实——很多
   工具来自 Scoop / 系统 / 同事配的环境，luban 不必"也得装"才能配
 
-> **schema 命名 in-flight**：上面用单数 `tool` / `config` 是已对齐的目标
-> 命名。当前实现的 TOML 键还是历史的复数 `[tools.X]` / `[programs.X]`，
-> 重命名到 `[tool.X]` / `[config.X]` 是单独 PR；本文档里 schema 示例代码段
-> 仍按当前实现写，避免误导读者用未实现的语法。
+> **schema 命名**（v0.2.0 议题 P 已落地）：单数 `[tool.X]` / `[config.X]` /
+> `[file."path"]`。旧复数 `[tools.X]` / `[programs.X]` / `[files."path"]`
+> 已变硬错误，无 alias。 `[config.X] for_tool = "Y"` 可显式覆盖隐式同名绑定。
 
 ## Verbs (34 入口)
 
@@ -213,7 +212,7 @@ https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
 `templates/programs/<tool>.lua` — 模块返回 `{ render(cfg, ctx), target_path(cfg, ctx) }`。
 然后 `CMakeLists.txt` 的 `foreach(PROG IN ITEMS ...)` 加上 `<tool>`，
 并在 `src/config_renderer.cpp` `#include` 生成的 header + 加进 switch。
-图纸里用 `[programs.<tool>]` 块喂 cfg。
+图纸里用 `[config.<tool>]` 块喂 cfg。
 （用户级 renderer 走 `luban.register_renderer` Lua API 是 v1.1 工作；
 详 docs/FUTURE.md。）
 
@@ -264,12 +263,15 @@ CI verifies invariant 7 on both flavors:
 | `LUBAN_FORCE_REINSTALL` | unset | =1 时 install.ps1 跳过 SHA-命中短路 |
 | `LUBAN_FLAVOR` | `msvc` | release 选哪个 flavor (`msvc` \| `mingw`) |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代 prefix（如 `https://ghfast.top`），重写 `github.com` / `*.githubusercontent.com` URL；**不**重写 `api.github.com`（公共 mirror 都 403 它）。注意 ghfast.top 限速严格，VN 网络下直连可能更快 |
-| `LUBAN_PARALLEL_CHUNKS` | 1 | bp apply 下载时 Range 并发数（0 / 1 = 单流，最高 16）。**默认单流是有原因的**——GitHub release CDN 对多并发 per-IP throttle 很狠，VN 网络实测 1 路 4.7 MB/s，4 路掉到 150 KB/s。只在私有 S3 / 内网镜像这种不限速的场景调高（详 DESIGN §25.2） |
-| `LUBAN_ENABLE_HTTP2` | unset | =1 让 WinHTTP 协商 HTTP/2。**默认 H1.1**（v0.2.6 翻），因为 release CDN（Fastly 托管的 objects.githubusercontent.com）对 VN 客户端 H2 慢得离谱（实测 14.9 KiB/s 对 H1.1 47 MiB/s，~3200× 差）。如果你网络下 H2 更快才开 |
-| `LUBAN_ENABLE_HTTP3` | unset | =1 在已开 H2 基础上再打开 H3 (QUIC over UDP/443)。**默认关**——VN/CN 网络下 UDP/443 被节流时 H3 协商超时 ~10s 才回退 H2，体感巨慢 |
 | `LUBAN_EXTRACT_THREADS` | min(8, hw_concurrency) | archive::extract worker 数（0 = 单线程）。llvm-mingw 测 4 路对单流 ~5× 加速，超过 ~8 SSD 写饱和无意义 |
 | `LUBAN_PROGRESS` | unset | =1 强制开 progress bar（非 TTY 也开） |
 | `LUBAN_NO_PROGRESS` | unset | =1 关 progress bar |
+
+**v0.3.0+ obsoleted**: `LUBAN_PARALLEL_CHUNKS` / `LUBAN_ENABLE_HTTP2` /
+`LUBAN_ENABLE_HTTP3` 都是 WinHTTP 时代的旋钮，v0.3.0 把 Win32 download
+backend 换成 curl.exe subprocess 后没意义了——curl 自管协议协商，per-host
+选 h1.1/h2/h3。这些 env vars 不再被读取；luban 不会因设置它们报错（向后
+兼容静默忽略），但也不会改变行为。
 
 ## Known quirks
 
