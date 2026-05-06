@@ -339,13 +339,14 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
 
         if (tool.no_shim) {
             // Record the tool as fetched-but-not-shimmed so generation
-            // tracking stays consistent with non-shim tools (rollback
-            // still removes the store entry; just no .cmd to delete).
+            // tracking stays consistent with non-shim tools. shim_path /
+            // bin_path_rel stay empty — rollback's reconcile path treats
+            // empty shim_path as "no .cmd to delete" and uses
+            // artifact_id + store::path_for() to locate the store entry.
             gen::ToolRecord rec;
             rec.from_blueprint = spec.name;
             rec.is_external = false;
             rec.artifact_id = plat->artifact_id;
-            rec.store_dir = fetched->store_dir.string();
             next_gen.tools[tool.name] = std::move(rec);
             ++result.tools_fetched;
             log::infof("  no_shim — registration handled by post_install");

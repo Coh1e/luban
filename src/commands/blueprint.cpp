@@ -544,9 +544,15 @@ int run_status(const cli::ParsedArgs&) {
     }
     std::printf("\nfiles (%zu):\n", cur->files.size());
     for (auto& [path, f] : cur->files) {
+        const char* mode_str = "?";
+        switch (f.mode) {
+            case bp::FileMode::Replace: mode_str = "replace"; break;
+            case bp::FileMode::DropIn:  mode_str = "drop-in"; break;
+            case bp::FileMode::Merge:   mode_str = "merge";   break;
+            case bp::FileMode::Append:  mode_str = "append";  break;
+        }
         std::printf("  %s [%s] from %s\n", path.c_str(),
-                    f.mode == bp::FileMode::DropIn ? "drop-in" : "replace",
-                    f.from_blueprint.c_str());
+                    mode_str, f.from_blueprint.c_str());
     }
     return 0;
 }

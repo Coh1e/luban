@@ -186,15 +186,15 @@ void parse_configs(const ::toml::table* configs_tbl, ParseCtx& ctx) {
         }
         bp::ConfigSpec cfg;
         cfg.name = cfg_name;
-        // Pull out for_tool BEFORE table_to_json so it doesn't pollute
-        // the JSON cfg passed to renderers (it's a parser-level field,
-        // not part of the tool's own config schema).
+        // for_tool is a parser-level field, not part of the tool's own
+        // cfg schema. Pull it out, then prune it from the JSON view we
+        // hand to the renderer so cfg looks clean. Erasing on JSON
+        // (post-conversion) sidesteps toml::table copyability concerns.
         if (auto v = (*cfg_tbl)["for_tool"].value<std::string>()) {
             cfg.for_tool = *v;
         }
-        ::toml::table cfg_copy = *cfg_tbl;  // shallow copy is fine for prune
-        cfg_copy.erase("for_tool");
-        cfg.config = table_to_json(cfg_copy);
+        cfg.config = table_to_json(*cfg_tbl);
+        if (cfg.config.is_object()) cfg.config.erase("for_tool");
         ctx.spec.configs.push_back(std::move(cfg));
     }
 }

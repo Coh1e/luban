@@ -33,6 +33,8 @@ const char* mode_to_str(bp::FileMode m) {
     switch (m) {
         case bp::FileMode::Replace: return "replace";
         case bp::FileMode::DropIn:  return "drop-in";
+        case bp::FileMode::Merge:   return "merge";
+        case bp::FileMode::Append:  return "append";
     }
     return "replace";
 }
@@ -40,6 +42,8 @@ const char* mode_to_str(bp::FileMode m) {
 std::expected<bp::FileMode, std::string> mode_from_str(std::string_view s) {
     if (s == "replace")                    return bp::FileMode::Replace;
     if (s == "drop-in" || s == "dropin")   return bp::FileMode::DropIn;
+    if (s == "merge")                      return bp::FileMode::Merge;
+    if (s == "append")                     return bp::FileMode::Append;
     return std::unexpected(std::string("unknown mode `") + std::string(s) + "`");
 }
 
