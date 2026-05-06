@@ -292,6 +292,7 @@ if(LUBAN_BUILD_TESTS)
         tests/test_external_skip.cpp
         tests/test_lua_json.cpp
         tests/test_config_renderer.cpp
+        tests/test_lua_register.cpp
         tests/test_generation.cpp
         tests/test_blueprint_reconcile.cpp
         # Leaf production sources we exercise. NOT main.cpp / cli.cpp /
