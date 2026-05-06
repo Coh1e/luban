@@ -42,7 +42,7 @@
 | 构建透传：`luban build` 自动 preset + cmake/ninja（必要时 emcmake 包裹）| 多版本共存（C++ ODR；luban 同名工具 last-wins）| luban registry mirror（内置 luban-bucket + github）|
 | 环境集成：`luban env --user` HKCU PATH + LUBAN_*/VCPKG_ROOT | 二进制中心仓库（vcpkg 自家 binary cache 已够）| sigstore / sumdb 风格 transparency log |
 | Shim 体系：`~/.local/bin/<tool>.cmd` + `luban-shim.exe` + `.shim-table.json` | 官方 IDE 插件（生成 compile_commands.json 即可）| |
-| 自管理：`self update/uninstall` / `doctor` / `--json` | luban cloud / 跨机同步 / telemetry / MSVC 构建 luban 自身 / luban.exe 嵌 Rust crate / DLL | |
+| 自管理：`self update/uninstall` / `doctor` / `--json` | luban cloud / 跨机同步 / telemetry / luban.exe 嵌 Rust crate / DLL | dual-flavor release（MSVC/MinGW，议题 R） |
 
 ## 5. 需求 MoSCoW
 
@@ -80,7 +80,7 @@
 - 写 Program Files / 动 HKLM / 需 admin
 - 维护官方 IDE 插件
 - luban cloud / telemetry
-- MSVC 构建 luban 自身（除非贡献者来）
+<!-- (议题 R) MSVC 构建 luban 自身已从非目标转为正式发布 flavor —— release 同时产出 MSVC (/MT) 与 MinGW 两个版本 -->
 - luban.exe 嵌 Rust crate / DLL 等大型运行时依赖（Lua 是显式例外，详 §11）
 - 多版本共存
 - build-from-source（lib 依赖；vcpkg 已做这件事）
@@ -95,7 +95,10 @@
 4. **`luban.toml` 可选**，承载项目级元数据：`[project] kind`（议题 AA） / `[scaffold]` / `[ports.X]` overlay/bridge port hint（议题 AB） / `warnings/sanitizer/preset/triplet` 偏好
 5. **XDG-first 路径**，即使 Windows 上也是；bin shim 走 `~/.local/bin/`
 6. **零 UAC、HKCU only**
-7. **luban.exe 必须 static-linked**（`-static -static-libgcc -static-libstdc++`），新装 Win10 无 PATH 即可跑
+7. **luban.exe 必须 static-linked**——新装 Win10 无 PATH 即可跑。两种实现都允许，CI 同时产出（议题 R, 2026-05-06）：
+   - **MSVC** (`/MT`)：~3 MB，release 默认。`CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded` 把 MS C runtime 静态嵌入；只剩 `kernel32 / user32 / shell32 / ole32 / advapi32 / bcrypt / winhttp` 这些 Win32 系统 DLL。
+   - **MinGW** (`-static -static-libgcc -static-libstdc++`)：~6 MB，备选。同一 `cpp-base` 装的 llvm-mingw 编出来，dev/release bit-identical。
+   - CI 用 `dumpbin /DEPENDENTS`（MSVC）/ `llvm-readobj --coff-imports`（MinGW）拒收任何含 `vcruntime / msvcp / api-ms-win-crt / libgcc_s / libstdc++ / libc++` 的依赖；invariant 7 在 release 流水线上被实测验证而不是文档约定。
 8. **toolchain ≠ 项目库**——`luban add cmake` 必须被拒绝；toolchains 进 generation，libs 进 `vcpkg.json`
 
 **放宽 1**：第三方 vendor 到 `third_party/<name>/` + LICENSE；**优先 single-header**，多文件需有充分理由——Lua 5.4 是当前唯一例外（脚本能力对 blueprint 不可替代；纯 C、可 sandbox、~200 KB 增量）。Python / V8 / QJS / DLLs 当前禁（QJS 是 v1.x 议题）。

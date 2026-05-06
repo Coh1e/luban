@@ -147,7 +147,7 @@ third_party/                   # 单 header vendored libs + lua54/
   lua54/                       # 60 .c/.h（破例多文件）
 docs/DESIGN.md                 # 唯一设计文档
 templates/help/                # 长 --help 文本，编进二进制
-.github/workflows/build.yml    # win + linux + macos build + tag→release
+.github/workflows/build.yml    # windows MSVC + MinGW dual-build, tag→release
 ```
 
 ## Don't break these (8 不变量；详 DESIGN.md §6)
@@ -217,14 +217,37 @@ https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
 ```bat
 :: bump version (one line, one file)
 sed -i "s|VERSION [0-9.]*|VERSION X.Y.Z|" CMakeLists.txt
-:: build + smoke
+:: build + smoke locally (whichever toolchain you have on hand)
 cmake --build --preset release
 build\release\luban.exe --version
 
-:: tag + push — CI auto-creates release with luban.exe + luban-shim.exe + SHA256SUMS
+:: tag + push — CI does the dual-flavor release
 git commit -am "Bump X.Y.Z" && git push
 git tag -a vX.Y.Z -m "luban X.Y.Z — ..." && git push --tags
 ```
+
+**Release flavors (议题 R, 2026-05-06)**: every release ships TWO
+Windows binaries, both static-linked (invariant 7 holds for either).
+`.github/workflows/build.yml` runs the two builds in parallel and a
+third job stitches them into a single GitHub release.
+
+| asset                       | toolchain              | size  | when to pick |
+|-----------------------------|------------------------|-------|--------------|
+| `luban-msvc.exe`            | windows-latest cl /MT  | ~3 MB | **default**. Smaller binary; fastest startup; no MinGW dependency on the dev box. |
+| `luban-shim-msvc.exe`       | -                      | ~150 KB | shim twin for MSVC luban |
+| `luban-mingw.exe`           | llvm-mingw 20260421 -static | ~6 MB | legacy / portability fallback. Same toolchain `cpp-base` installs, so dev/release are bit-identical. |
+| `luban-shim-mingw.exe`      | -                      | ~600 KB | shim twin for MinGW luban |
+| `SHA256SUMS`                | -                      | -     | covers all 4 binaries |
+
+`install.ps1` defaults to msvc; users who want the MinGW flavor set
+`$env:LUBAN_FLAVOR='mingw'` before invoking. On disk both flavors land
+as `luban.exe` / `luban-shim.exe` (suffix only lives in the release
+asset name) so downstream `.cmd` / `.exe` PATH probes resolve uniformly.
+
+CI verifies invariant 7 on both flavors:
+- MSVC: `dumpbin /DEPENDENTS` rejects vcruntime / msvcp / api-ms-win-crt
+- MinGW: `llvm-readobj --coff-imports` rejects libgcc_s / libstdc++ /
+  libc++ / vcruntime / msvcp
 
 ## Known quirks
 

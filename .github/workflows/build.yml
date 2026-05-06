@@ -1,5 +1,10 @@
 name: build
 
+# Dual-flavor release: every tag push produces both an MSVC build (smaller,
+# Windows-native CRT, default) and an LLVM-MinGW build (legacy / portability
+# fallback). Both are static-linked — invariant 7 holds for either flavor.
+# install.ps1 grabs MSVC by default; users override via LUBAN_FLAVOR=mingw.
+
 on:
   push:
     branches: [main]
@@ -9,7 +14,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  windows:
+  msvc:
     name: windows-x64 (MSVC, /MT)
     runs-on: windows-latest
     steps:
@@ -33,17 +38,17 @@ jobs:
       - name: Build
         run: cmake --build build/release --parallel
 
-      - name: Verify static linkage (no vcruntime / msvcp dependency)
+      - name: Verify static linkage (invariant 7)
         shell: pwsh
         run: |
           $deps = & dumpbin /DEPENDENTS build/release/luban.exe
           Write-Host ($deps -join "`n")
           $bad = $deps | Select-String -Pattern '(vcruntime|msvcp|api-ms-win-crt)' -CaseSensitive:$false
           if ($bad) {
-            Write-Error "luban.exe has dynamic CRT deps — invariant 7 broken:`n$($bad -join "`n")"
+            Write-Error "MSVC luban.exe has dynamic CRT deps:`n$($bad -join "`n")"
             exit 1
           }
-          Write-Host "OK: luban.exe is statically linked (no vcruntime / msvcp)."
+          Write-Host "OK: MSVC luban.exe is statically linked."
 
       - name: Smoke test
         shell: pwsh
@@ -51,30 +56,121 @@ jobs:
           build/release/luban.exe --version
           build/release/luban.exe --help | Select-Object -First 5
 
-      - name: Stage release assets + SHA256SUMS
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Stage artifacts (msvc-suffixed)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item build/release/luban.exe       dist/luban.exe
-          Copy-Item build/release/luban-shim.exe  dist/luban-shim.exe
-          Push-Location dist
-          $sums = @()
-          foreach ($f in @('luban.exe', 'luban-shim.exe')) {
-            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-            $sums += "$h  $f"
+          Copy-Item build/release/luban.exe       dist/luban-msvc.exe
+          Copy-Item build/release/luban-shim.exe  dist/luban-shim-msvc.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msvc
+          path: dist/*
+
+  mingw:
+    name: windows-x64 (LLVM-MinGW, -static)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM-MinGW + Ninja
+        shell: pwsh
+        run: |
+          # llvm-mingw release with UCRT (matches blueprint cpp-base default).
+          $url = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-x86_64.zip'
+          $tmp = "$env:RUNNER_TEMP\llvm-mingw.zip"
+          Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+          Expand-Archive $tmp -DestinationPath "$env:RUNNER_TEMP\toolchain" -Force
+          $clang = Get-ChildItem -Path "$env:RUNNER_TEMP\toolchain" -Recurse -Filter clang.exe |
+                   Where-Object { $_.FullName -match 'bin\\clang\.exe$' } |
+                   Select-Object -First 1
+          if (-not $clang) { throw "could not locate clang.exe in extracted llvm-mingw" }
+          $bin = $clang.Directory.FullName
+          "PATH=$bin;$env:PATH"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$bin"                 | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          # ninja preinstalled on windows-latest; verify it's reachable.
+          ninja --version
+          clang --version
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset release
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build --preset release
+
+      - name: Verify no MSVCRT / vcruntime deps (invariant 7 — MinGW flavor)
+        shell: pwsh
+        run: |
+          # llvm-mingw with -static -static-libgcc -static-libstdc++ should
+          # leave only Win32 system DLLs in the dependents list. We don't
+          # have dumpbin in this job (no MSVC env); use llvm-readobj which
+          # ships with llvm-mingw.
+          $deps = & llvm-readobj.exe --coff-imports build/release/luban.exe 2>&1
+          Write-Host ($deps -join "`n")
+          $bad = $deps | Select-String -Pattern '(vcruntime|msvcp|libc\+\+|libstdc\+\+|libgcc_s)' -CaseSensitive:$false
+          if ($bad) {
+            Write-Error "MinGW luban.exe has dynamic runtime deps:`n$($bad -join "`n")"
+            exit 1
           }
-          $sums -join "`n" | Out-File -Encoding ascii -FilePath SHA256SUMS
-          Get-Content SHA256SUMS
-          Pop-Location
+          Write-Host "OK: MinGW luban.exe is statically linked."
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          build/release/luban.exe --version
+          build/release/luban.exe --help | Select-Object -First 5
+
+      - name: Stage artifacts (mingw-suffixed)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build/release/luban.exe       dist/luban-mingw.exe
+          Copy-Item build/release/luban-shim.exe  dist/luban-shim-mingw.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mingw
+          path: dist/*
+
+  release:
+    name: Publish dual-flavor release
+    needs: [msvc, mingw]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble + SHA256SUMS
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp artifacts/msvc/luban-msvc.exe         dist/
+          cp artifacts/msvc/luban-shim-msvc.exe    dist/
+          cp artifacts/mingw/luban-mingw.exe       dist/
+          cp artifacts/mingw/luban-shim-mingw.exe  dist/
+          cd dist
+          sha256sum luban-msvc.exe luban-shim-msvc.exe luban-mingw.exe luban-shim-mingw.exe \
+            | sed 's| \./| |' > SHA256SUMS
+          ls -la
+          cat SHA256SUMS
 
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/luban.exe
-            dist/luban-shim.exe
+            dist/luban-msvc.exe
+            dist/luban-shim-msvc.exe
+            dist/luban-mingw.exe
+            dist/luban-shim-mingw.exe
             dist/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
