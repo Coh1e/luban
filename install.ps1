@@ -4,8 +4,8 @@
 #
 # Drops luban.exe + luban-shim.exe into ~/.local/bin (XDG-style, shared with
 # uv/pipx/claude-code), verifies SHA256, and offers to run `luban env --user`
-# (HKCU PATH registration) and `luban bp apply embedded:cpp-base` (toolchain
-# install via blueprint) for you.
+# (HKCU PATH registration) and bootstrap the foundation toolchain via
+# `luban bp src add Coh1e/luban-bps` + `luban bp apply main/cpp-base`.
 #
 # Override the install dir with $env:LUBAN_INSTALL_DIR or pre-create the
 # target dir; the installer never elevates and never writes outside it.
@@ -79,12 +79,19 @@ if (-not $inPath) {
 }
 
 # ---- toolchain bootstrap (prompted) ----------------------------------------
+# luban.exe embeds zero blueprints (议题 AG); the foundation set lives in
+# Coh1e/luban-bps. We register that source as `main` and apply cpp-base
+# from it. User can also skip and do it later manually.
 Write-Host ""
-$ans = Read-Host "Apply \`embedded:cpp-base\` now to install the default toolchain (llvm-mingw / cmake / ninja / git / vcpkg)? [Y/n]"
+$ans = Read-Host "Register Coh1e/luban-bps and apply main/cpp-base now? (toolchain: llvm-mingw / cmake / ninja / git / vcpkg) [Y/n]"
 if ($ans -eq '' -or $ans -match '^[Yy]') {
-    & (Join-Path $installDir 'luban.exe') bp apply embedded:cpp-base
+    $luban = Join-Path $installDir 'luban.exe'
+    & $luban bp src add Coh1e/luban-bps --name main --yes
+    & $luban bp apply main/cpp-base
 } else {
-    Write-Host "Run \`luban bp apply embedded:cpp-base\` later when you want the toolchain."
+    Write-Host "Later, run:"
+    Write-Host "  luban bp src add Coh1e/luban-bps --name main --yes"
+    Write-Host "  luban bp apply main/cpp-base"
 }
 
 Write-Host ""

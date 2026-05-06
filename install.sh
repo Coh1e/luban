@@ -7,7 +7,10 @@
 # for POSIX (CI gating green) but a few install-flow pieces remain (PATH
 # integration via shellrc, default blueprint apply UX). When that lands
 # this script will mirror install.ps1: download luban + luban-shim into
-# ~/.local/bin, verify SHA256, offer to run `luban bp apply embedded:cpp-base`.
+# ~/.local/bin, verify SHA256, then offer:
+#   luban bp src add Coh1e/luban-bps --name main --yes
+#   luban bp apply main/cpp-base
+# (the foundation toolchain blueprint, served from the external bp source).
 
 set -euo pipefail
 
