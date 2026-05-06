@@ -70,7 +70,7 @@ endforeach()
 # DESIGN §9.10 议题 AG terminal vision (2026-05-06): the luban binary
 # embeds zero blueprints. All bps come from registered bp sources via
 # `luban bp src add <url>`. The foundation 3 (git-base / cpp-base /
-# cli-quality) live in https://github.com/Coh1e/luban-bps and are
+# cli-base) live in https://github.com/Coh1e/luban-bps and are
 # fetched on demand.
 #
 # (Earlier revisions of luban embedded `templates/blueprints/*.toml`

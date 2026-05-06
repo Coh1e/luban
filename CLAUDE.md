@@ -20,7 +20,7 @@
 luban bp src add Coh1e/luban-bps --name main   # 一次性，trust prompt
 luban bp apply main/git-base                   # git+lfs+gcm+openssh
 luban bp apply main/cpp-base                   # C++ 工具链（依赖 git-base）
-luban bp apply main/cli-quality                # 工作台 CLI
+luban bp apply main/cli-base                   # 工作台 CLI（zoxide / starship / fd / ripgrep）
 luban bp apply main/onboarding                 # 个人定制
 ```
 
@@ -37,7 +37,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 
 - **blueprint（图纸 / 能力包）**：让机器获得某个能力所需的声明集合。
   `git-base` = git+lfs+gcm+openssh；`cpp-base` = C++ 工具链；
-  `cli-quality` = 工作台 CLI。一张图纸 ≈ 一种能力。所有 bp 来自外部
+  `cli-base` = 工作台 CLI。一张图纸 ≈ 一种能力。所有 bp 来自外部
   bp source（`luban bp src add` 注册，§9.10）。
 - **tool（工具 / 可执行物）**：实现能力靠的程序。一条 `tool` 声明对应一个
   PATH 上能调用的二进制（cmake / ninja / git / ssh / ...），由 luban 装在
@@ -50,7 +50,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 - blueprint 是顶层容器；tool 和 config 是它的内容
 - 同名的 `tool` 与 `config` 默认绑定同一个 X（如 `tool.bat` + `config.bat`）；
   显式绑定通过 `for_tool = "Y"` 覆盖（schema 化关系），缺省 = X
-- 两边各有独立 lifecycle：cli-quality 可以只写 `config.git`（不装 git，
+- 两边各有独立 lifecycle：cli-base 可以只写 `config.git`（不装 git，
   由 git-base 装），或只写 `tool.gh`（不配 gh）。这是 Windows 现实——很多
   工具来自 Scoop / 系统 / 同事配的环境，luban 不必"也得装"才能配
 
@@ -63,7 +63,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 
 详 `docs/DESIGN.md` §16. 按组：
 
-- **blueprint** (11): `bp apply / unapply / ls / status / rollback / gc / search / src add / src rm / src ls / src update`（DESIGN §9.10 议题 AG, 2026-05-06；`bp src` 是 `bp source` 短别名）。`main` 是 luban 内置 source（cli-quality / cpp-base / git-base 编进二进制，对应 §9.10.5 bootstrap snapshot）。
+- **blueprint** (11): `bp apply / unapply / ls / status / rollback / gc / search / src add / src rm / src ls / src update`（DESIGN §9.10 议题 AG, 2026-05-06；`bp src` 是 `bp source` 短别名）。`apply --update <bp>` 强制重 resolve（绕过本地 lock 缓存——v0.1.0/v0.1.1 用户从空 artifact_id 状态恢复必走）。所有 bp 来自外部 bp source（v1.0+ 零内嵌）。
 - **project** (14): `new / build / check / test / doc / add / remove / target add+rm / tree / update / outdated / search / clean / fmt`
 - **env** (2): `env / doctor`
 - **utility** (5): `which / run / describe / self / completion`
@@ -188,7 +188,7 @@ https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
 版本解耦。
 
 1. 选层：网络/工程通用工具进 `git-base.toml`；C++ 编译相关进 `cpp-base.toml`；
-   日常 CLI 利器进 `cli-quality.toml`。新单工具图纸 = 新 .toml 在你 bp
+   日常 CLI 利器进 `cli-base.toml`。新单工具图纸 = 新 .toml 在你 bp
    source repo 的 `blueprints/` 下（**luban 这边不动代码**）。
 2. 在 `[tools.X]` 节加 `source = "github:owner/repo"`；非 GitHub releases 用
    显式的 `[[tools.X.platform]]` block（url + sha256 + bin）。多 binary 工具
@@ -249,6 +249,20 @@ CI verifies invariant 7 on both flavors:
 - MinGW: `llvm-readobj --coff-imports` rejects libgcc_s / libstdc++ /
   libc++ / vcruntime / msvcp
 
+## User-facing env vars
+
+调用方常用，install.ps1 + luban C++ 都识别：
+
+| env | 默认 | 说明 |
+|---|---|---|
+| `LUBAN_INSTALL_DIR` | `~/.local/bin` | install.ps1 安装目标目录 |
+| `LUBAN_FORCE_REINSTALL` | unset | =1 时 install.ps1 跳过 SHA-命中短路 |
+| `LUBAN_FLAVOR` | `msvc` | release 选哪个 flavor (`msvc` \| `mingw`) |
+| `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代 prefix（如 `https://ghfast.top`），重写 `github.com` / `*.githubusercontent.com` URL；**不**重写 `api.github.com`（公共 mirror 都 403 它）。注意 ghfast.top 限速严格，VN 网络下直连可能更快 |
+| `LUBAN_PARALLEL_CHUNKS` | 4 | bp apply 下载时 Range 并发数（0 = 单流，最高 16）。**触发 CDN throttle 时反而调低到 1-2 更快** |
+| `LUBAN_PROGRESS` | unset | =1 强制开 progress bar（非 TTY 也开） |
+| `LUBAN_NO_PROGRESS` | unset | =1 关 progress bar |
+
 ## Known quirks
 
 - **D:\dobby junction**：`C:\Users\Rust\.local\share\luban` 与
@@ -260,6 +274,17 @@ CI verifies invariant 7 on both flavors:
   `tests/test_<module>.cpp`，加进 `LUBAN_BUILD_TESTS` block。
 - **shim 路径** = `~/.local/bin/`（不变量 5）。任何代码写老 `<data>/bin/`
   都是 v0.x 残留，应改走 `paths::xdg_bin_home()`。
+- **空 artifact_id 的 stale lock**（v0.1.0 / v0.1.1 遗留）：早期 resolver
+  把 `lp.artifact_id = ""` 写进 lock 期望 store 填——但 store 用值不计算。
+  结果 `final_dir = <store>/`（store 根本身），`fs::rename(tmp, store_root)`
+  以 ERROR_PATH_NOT_FOUND 失败，cache 里还堆个 `.archive` 孤儿文件。
+  v0.1.2+ resolver 在 `lp.sha256` 拿到后调 `compute_artifact_id` 写进 lock；
+  store::fetch 也 guard 空 id。**用户从 v0.1.0/0.1.1 升级后必须**
+  `luban bp apply --update <bp>` 一次重写 lock，否则继续命中老 lock 报错。
+- **GitHub mirror 限速**（ghfast.top / gh-proxy.com 等公共反代）：免费 IP 限速
+  到几 KB/s 是常态。VN/CN 网络如果直连 github.com 可达就**别**走 mirror——
+  实测直连可比 mirror 快 25×。mirror 的真正用武之地是 GitHub 完全封堵
+  的网络。
 
 ## Where to read more
 

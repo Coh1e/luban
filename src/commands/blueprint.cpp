@@ -677,7 +677,7 @@ void register_blueprint() {
     c.opts = {{"ref", ""}, {"name", ""}};
     c.forward_rest = false;
     c.examples = {
-        "luban blueprint apply main/cli-quality\tApply the cli-quality blueprint from main",
+        "luban blueprint apply main/cli-base\tApply the cli-base blueprint from main",
         "luban bp ls\tShort alias; list blueprints",
         "luban blueprint rollback\tRevert to the previous generation",
     };

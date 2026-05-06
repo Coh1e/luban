@@ -70,7 +70,7 @@ void print_top_help() {
         "Common workflows:\n"
         "  First-time machine setup (apply blueprints):\n"
         "    luban bp apply main/cpp-base    install LLVM-MinGW + cmake + ninja + vcpkg\n"
-        "    luban bp apply main/cli-quality install ripgrep / fd / bat / fzf / ...\n"
+        "    luban bp apply main/cli-base    install zoxide / starship / fd / ripgrep\n"
         "    luban env --user                    register on HKCU PATH (rustup-style)\n"
         "\n"
         "  Start a new C++ project (no deps):\n"

@@ -10,8 +10,13 @@ luban 读一份 Lua / TOML 图纸（blueprint），照图纸把这台机器的 C
 bat / ...）、配置文件（git / bat / fastfetch / ...）。多张图纸像 layer 一样叠，
 可原子 rollback。
 
-单一静态链接二进制（~5 MB），零 UAC，XDG-first，内嵌 Lua 5.4。Windows-first；
+单一静态链接二进制，零 UAC，XDG-first，内嵌 Lua 5.4。Windows-first；
 POSIX 可构建。
+
+每个 release 出**两个 flavor**，都 static-linked：`luban-msvc.exe`（~3 MB，
+默认；MSVC `/MT`）和 `luban-mingw.exe`（~6 MB；LLVM-MinGW `-static`）。CI 用
+`dumpbin` / `llvm-readobj` 校验 invariant 7（无 vcruntime / msvcp / libgcc_s /
+libstdc++ 依赖）。
 
 ## 安装
 
@@ -24,16 +29,30 @@ irm https://github.com/Coh1e/luban/raw/main/install.ps1 | iex
 安装器把 `luban.exe` + `luban-shim.exe` 落到 `~/.local/bin`（和 uv / pipx /
 claude-code 共享同一个 XDG bin 目录），用最新 release 的 `SHA256SUMS` 校验，
 然后提示你跑 `luban env --user`（把 `~/.local/bin` 和 toolchain bin 注册到
-HKCU PATH）。
+HKCU PATH）。已装过的机器重跑只 SHA 对比，不会重复下载。
+
+#### 调参 env vars
+
+| env | 默认 | 作用 |
+|---|---|---|
+| `LUBAN_INSTALL_DIR` | `~/.local/bin` | 安装目标目录 |
+| `LUBAN_FLAVOR` | `msvc` | 选哪个 flavor (`msvc` \| `mingw`) |
+| `LUBAN_FORCE_REINSTALL` | unset | =1 时跳过 SHA 命中短路 |
+| `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代前缀（如 `https://ghfast.top`），CN/SEA 慢网用；installer 和 luban 都认。**注意公共 mirror 限速严，能直连优先直连** |
+| `LUBAN_PARALLEL_CHUNKS` | `4` | bp apply Range 并发数（0 = 单流，最高 16）。**CDN throttle 时调到 1-2 反而更快** |
+| `LUBAN_PROGRESS` / `LUBAN_NO_PROGRESS` | unset | 强制开/关进度条（TTY 默认开） |
 
 ### 手动
 
 从 [最新 release](https://github.com/Coh1e/luban/releases/latest)
-下载 `luban.exe` + `luban-shim.exe`：
+按需下载 flavor，落地时改回不带后缀的名字：
 
 ```pwsh
-gh release download --repo Coh1e/luban -p luban.exe -p luban-shim.exe -p SHA256SUMS
+gh release download --repo Coh1e/luban `
+  -p luban-msvc.exe -p luban-shim-msvc.exe -p SHA256SUMS
 sha256sum -c SHA256SUMS
+Rename-Item luban-msvc.exe      luban.exe
+Rename-Item luban-shim-msvc.exe luban-shim.exe
 ```
 
 放进 PATH 上的目录（比如 `~/.local/bin`）。
@@ -58,7 +77,7 @@ luban bp src add Coh1e/luban-bps --name main
 
 # 2. 搭工坊（工具链 + CLI 利器）
 luban bp apply main/cpp-base
-luban bp apply main/cli-quality
+luban bp apply main/cli-base
 luban env --user                       # 注册 HKCU PATH；开新终端立即生效
 
 # 3. 创建 + 构建项目
@@ -66,7 +85,7 @@ luban new app hello && cd hello
 luban add fmt && luban build
 ```
 
-luban 二进制**零内嵌 bp**。基础 4 件（`cpp-base` / `cli-quality` / `git-base`
+luban 二进制**零内嵌 bp**。基础 4 件（`cpp-base` / `cli-base` / `git-base`
 / `onboarding`）住在外部 [Coh1e/luban-bps](https://github.com/Coh1e/luban-bps)。
 任何人都能发自己的 blueprint source repo 然后 `luban bp src add` 注册。
 
@@ -76,7 +95,7 @@ C++ 在 Windows 上原本要装的散件（toolchain / cmake / ninja / clangd / 
 git + 一堆 cmake 胶水代码）合在一起几天的活，luban 把它做成 **多层叠图纸**：
 
 - **承重墙**：`main/cpp-base` 装编译器 / cmake / vcpkg / 等
-- **工作台**：`main/cli-quality` 装日常 CLI 利器 + dotfiles
+- **工作台**：`main/cli-base` 装日常 CLI 利器（zoxide / starship / fd / ripgrep）+ dotfiles
 - **装修**：用户写自己的 `~/.config/luban/blueprints/dev.lua` 加私有工具与配置
 
 之后每个项目里：

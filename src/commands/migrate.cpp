@@ -157,7 +157,7 @@ int run_migrate(const cli::ParsedArgs& a) {
                 paths::xdg_bin_home().string().c_str());
     std::printf("  - run `luban env --user` to add ~/.local/bin/ to HKCU PATH "
                 "(both dirs end up on PATH in transition).\n");
-    std::printf("  - run `luban bp apply main/cli-quality` to opt into the "
+    std::printf("  - run `luban bp apply main/cli-base` to opt into the "
                 "v1.0 personal toolset model.\n");
     return 0;
 }
