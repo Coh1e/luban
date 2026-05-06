@@ -220,6 +220,20 @@ function Test-OnUserPath($dir) {
     return $false
 }
 
+# Helper: invoke luban.exe with the parent console's TTY inherited so its
+# own progress meters (download + extract) animate live. `& $exe ...`
+# routes stderr through PowerShell's redirection layer which buffers it
+# until the child exits — same root cause as the curl progress problem
+# above. Start-Process -NoNewWindow keeps the inherited handles raw.
+function Invoke-LubanLive {
+    param([string[]]$Args)
+    $proc = Start-Process -FilePath $lubanExe -ArgumentList $Args `
+        -NoNewWindow -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+        throw "luban.exe exited $($proc.ExitCode): $($Args -join ' ')"
+    }
+}
+
 if (Test-OnUserPath $installDir) {
     Write-Host ""
     Write-Host "$installDir is already on your HKCU PATH — no change needed."
@@ -228,7 +242,7 @@ if (Test-OnUserPath $installDir) {
     Write-Host "$installDir is not on your HKCU PATH yet."
     $ans = Read-Host "Add it (and register VCPKG_ROOT / EM_CONFIG when applicable)? [Y/n]"
     if ($ans -eq '' -or $ans -match '^[Yy]') {
-        & (Join-Path $installDir 'luban.exe') env --user
+        Invoke-LubanLive @('env', '--user')
     } else {
         Write-Host "Run \`luban env --user\` later to register on HKCU PATH."
     }
@@ -270,9 +284,9 @@ if ($mainRegistered -and $cppApplied) {
     }
     if ($ans -eq '' -or $ans -match '^[Yy]') {
         if (-not $mainRegistered) {
-            & $lubanExe bp src add Coh1e/luban-bps --name main --yes
+            Invoke-LubanLive @('bp', 'src', 'add', 'Coh1e/luban-bps', '--name', 'main', '--yes')
         }
-        & $lubanExe bp apply main/cpp-base
+        Invoke-LubanLive @('bp', 'apply', 'main/cpp-base')
     } else {
         Write-Host "Later, run:"
         if (-not $mainRegistered) {
