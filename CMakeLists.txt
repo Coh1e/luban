@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 0.4.0
+    VERSION 0.4.1
     LANGUAGES CXX C)
 
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
@@ -131,6 +131,7 @@ set(LUBAN_SOURCES
     src/blueprint_lock.cpp
     src/source_resolver.cpp
     src/source_resolver_github.cpp
+    src/source_resolver_pwsh.cpp
     src/source_registry.cpp
     src/store.cpp
     src/store_fetch.cpp

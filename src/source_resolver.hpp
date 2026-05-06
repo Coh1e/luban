@@ -51,14 +51,17 @@ resolve(const luban::blueprint::ToolSpec& spec);
 [[nodiscard]] std::string source_body(std::string_view source);
 
 namespace detail {
-/// Registration hook used by source_resolver_github.cpp to wire its
-/// implementation in at static-init time. Production luban.exe links
-/// that TU, populating the pointer; tests don't, leaving it null. See
-/// source_resolver.cpp for how `resolve()` consumes this.
+/// Registration hooks used by source_resolver_<scheme>.cpp TUs to wire
+/// their implementations in at static-init time. Production luban.exe
+/// links those TUs, populating the pointers; tests don't, leaving them
+/// null. See source_resolver.cpp for how `resolve()` consumes them.
 using GithubResolverFn =
     std::expected<luban::blueprint_lock::LockedTool, std::string> (*)(
         const luban::blueprint::ToolSpec&);
 void set_github_resolver(GithubResolverFn fn);
+
+using PwshModuleResolverFn = GithubResolverFn;
+void set_pwsh_module_resolver(PwshModuleResolverFn fn);
 }  // namespace detail
 
 }  // namespace luban::source_resolver
