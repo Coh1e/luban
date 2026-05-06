@@ -201,6 +201,37 @@ struct ParsedUrl {
     bool secure = true;
 };
 
+// Enable HTTP/2 (and HTTP/3 if available) on a WinHTTP session handle.
+// Empirical (VN -> github.com release CDN, 2026-05-06): single HTTP/1.1
+// stream tops out around 50 KB/s; HTTP/2 over the same connection runs
+// 4 MB/s — same throttle, but the protocol's multiplexing inside one
+// TCP avoids the per-IP connection-count limit GitHub's CDN imposes.
+//
+// WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL is option 133, available since
+// Windows 10 1607. The HTTP/3 flag (0x2) lights up on Win11 22H2+; we
+// OR it in unconditionally — older Windows just ignores unknown flags
+// and keeps HTTP/2.
+//
+// Define the constants ourselves so the build doesn't depend on which
+// SDK header version the build environment ships.
+#ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
+#define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 133
+#endif
+#ifndef WINHTTP_PROTOCOL_FLAG_HTTP2
+#define WINHTTP_PROTOCOL_FLAG_HTTP2 0x1
+#endif
+#ifndef WINHTTP_PROTOCOL_FLAG_HTTP3
+#define WINHTTP_PROTOCOL_FLAG_HTTP3 0x2
+#endif
+void enable_http2_on_session(HINTERNET session) {
+    DWORD flags = WINHTTP_PROTOCOL_FLAG_HTTP2 | WINHTTP_PROTOCOL_FLAG_HTTP3;
+    WinHttpSetOption(session, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
+                     &flags, sizeof(flags));
+    // No error check: opt-in. If the OS doesn't recognize the option
+    // (unusual — would require pre-1607), we degrade gracefully to
+    // HTTP/1.1 instead of failing the request.
+}
+
 std::optional<ParsedUrl> parse_url(const std::string& url) {
     URL_COMPONENTS uc{};
     uc.dwStructSize = sizeof(uc);
@@ -236,6 +267,7 @@ std::expected<int64_t, Error> do_request(
                             WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpOpen failed"});
+    enable_http2_on_session(session.h);
 
     int ms = timeout_seconds * 1000;
     WinHttpSetTimeouts(session.h, ms, ms, ms, ms);
@@ -335,6 +367,7 @@ std::optional<HeadInfo> head_info(const std::string& url, int timeout_seconds) {
     session.h = WinHttpOpen(user_agent().c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.h) return std::nullopt;
+    enable_http2_on_session(session.h);
     int ms = timeout_seconds * 1000;
     WinHttpSetTimeouts(session.h, ms, ms, ms, ms);
 
@@ -411,6 +444,7 @@ std::expected<int64_t, Error> download_range_to_file(
     session.h = WinHttpOpen(user_agent().c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.h) return std::unexpected(Error{ErrorKind::Network, "WinHttpOpen failed"});
+    enable_http2_on_session(session.h);
     int ms = timeout_seconds * 1000;
     WinHttpSetTimeouts(session.h, ms, ms, ms, ms);
 

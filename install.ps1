@@ -80,6 +80,22 @@ function Mirror-Url($u) {
     return $u
 }
 
+# Windows-shipped curl.exe (since 1803) speaks HTTP/2 and is empirically
+# 80x faster than Invoke-WebRequest's HTTP/1.1 single-stream against
+# GitHub's release CDN (measured 4 MB/s vs 48 KB/s on the same 3 MB
+# binary, same instant). Fall back to Invoke-WebRequest only if curl is
+# missing — extremely unlikely on Win10 1803+ but defensive doesn't hurt.
+$curlExe = (Get-Command curl.exe -ErrorAction SilentlyContinue)?.Source
+
+function Download-File($url, $dest) {
+    if ($curlExe) {
+        & $curlExe -sSL --fail --max-time 300 -A 'luban-installer' -o $dest $url
+        if ($LASTEXITCODE -ne 0) { throw "curl exited $LASTEXITCODE downloading $url" }
+    } else {
+        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 300
+    }
+}
+
 # ---- discover latest release -----------------------------------------------
 Write-Host "→ Querying github.com/Coh1e/luban for the latest release..."
 if ($mirror) { Write-Host "  via mirror: $mirror" }
@@ -97,7 +113,7 @@ function Get-AssetUrl($name) {
 
 # ---- SHA256SUMS -------------------------------------------------------------
 $sumsTmp = Join-Path $env:TEMP "luban-SHA256SUMS-$([Guid]::NewGuid()).txt"
-Invoke-WebRequest -Uri (Get-AssetUrl 'SHA256SUMS') -OutFile $sumsTmp -UseBasicParsing
+Download-File (Get-AssetUrl 'SHA256SUMS') $sumsTmp
 $sums = @{}
 foreach ($line in Get-Content $sumsTmp) {
     $parts = $line -split '\s\s', 2
@@ -127,7 +143,7 @@ function Install-Asset($localName, $assetName) {
     if (-not $expected) { throw "SHA256SUMS does not list $assetName" }
     $tmp = Join-Path $env:TEMP "luban-$assetName-$([Guid]::NewGuid()).part"
     Write-Host "→ Downloading $assetName..."
-    Invoke-WebRequest -Uri (Get-AssetUrl $assetName) -OutFile $tmp -UseBasicParsing
+    Download-File (Get-AssetUrl $assetName) $tmp
     $actual = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected) {
         Remove-Item $tmp -Force
