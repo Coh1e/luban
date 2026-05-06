@@ -48,17 +48,27 @@ History (already-shipped milestones, ADRs, S1-S8 step ledger) lives in
 
 ### Authoring
 
-- **Lua-side `register_resolver` / `register_renderer`**
-  Blueprints can teach luban about new source schemes (e.g. emscripten on
-  Google Storage) or new program renderers (e.g. starship config) by
-  registering Lua functions inline. The C-side hooks (extension registry +
-  scheme dispatch) are the easy half; the hard half is Engine lifetime —
-  `program_renderer.cpp` currently spins a fresh `lua::Engine` per render
-  call, so a function registered during blueprint eval is unreachable when
-  the renderer's own Engine resolves it. For v1, new schemes/renderers
-  ship as separate C++ TUs (mirror `src/source_resolver_github.cpp`).
-  v1.1 should refactor program_renderer to thread a shared Engine
-  through, and then expose `luban.register_*` properly.
+- **`luban.register_*` builtin renderer migration to registry path**
+  ✅ Lua-side `luban.register_renderer` (v0.4.0) and `register_resolver`
+  (v0.4.2) are shipped — see DESIGN.md issue M closure row. Engine
+  lifetime extended via parse-twice in commands/blueprint.cpp run_apply
+  (long-lived Engine + two registries that survive parse → lock-resolve →
+  render). What's left is cosmetic: the 5 builtin renderers
+  (`templates/configs/<X>.lua`) still go through their per-call embedded
+  source dispatch in `config_renderer::render()`, while bp-registered
+  renderers go through the new registry path. DESIGN §9.9 line 656
+  promises "无双码路径" — a future cleanup loads builtins into the
+  registry at apply start so dispatch is uniform. Doesn't change behavior;
+  reduces surface area by ~50 lines of dual-codepath logic.
+
+- **`pwsh-module:` auto-latest version**
+  v0.4.1's `pwsh-module:Name` requires explicit `version = "X.Y.Z"`. To
+  support `version = "*"` (or auto-latest), the resolver needs to query
+  `https://www.powershellgallery.com/api/v2/Packages()?$filter=Id eq 'X'
+  and IsLatestVersion eq true` which returns Atom XML. We don't ship an
+  XML parser; pulling one in (pugixml? expat?) is the gating decision.
+  Until then, pin versions explicitly — better practice anyway (masks
+  supply-chain bumps).
 
 - **Project-level blueprints**
   `<project>/.luban/blueprints/` merging into user-level via topology +

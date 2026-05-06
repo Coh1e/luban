@@ -387,3 +387,18 @@ if (Test-BpApplied 'cpp-toolchain') {
 Write-Host ""
 Write-Host "✓ luban $tag at $installDir"
 Write-Host "  open a new shell for PATH changes to take effect."
+Write-Host ""
+
+# Defender-exclusion tip. luban's store gets thousands of small files
+# (cmake bundle = 8500+, llvm-mingw = 270+) and Windows Defender's
+# real-time scan adds ~50 ms per file write — extracting cmake takes
+# ~50 s with Defender vs ~25 s without. Adding the exclusion needs
+# admin (per-user MpPreference is a Pro/Enterprise SKU thing), so we
+# don't try to do it for the user; just print the recipe.
+$exclusionDir = Join-Path $env:USERPROFILE '.local\share\luban\store'
+Write-Host "tip: Windows Defender scans every extracted file in the luban store."
+Write-Host "     A one-shot exclusion (run from an *admin* PowerShell) cuts cpp-toolchain"
+Write-Host "     extract time roughly in half:"
+Write-Host ""
+Write-Host "       Add-MpPreference -ExclusionPath '$exclusionDir'"
+Write-Host ""
