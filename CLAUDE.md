@@ -265,6 +265,8 @@ CI verifies invariant 7 on both flavors:
 | `LUBAN_FLAVOR` | `msvc` | release 选哪个 flavor (`msvc` \| `mingw`) |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset | 反代 prefix（如 `https://ghfast.top`），重写 `github.com` / `*.githubusercontent.com` URL；**不**重写 `api.github.com`（公共 mirror 都 403 它）。注意 ghfast.top 限速严格，VN 网络下直连可能更快 |
 | `LUBAN_PARALLEL_CHUNKS` | 1 | bp apply 下载时 Range 并发数（0 / 1 = 单流，最高 16）。**默认单流是有原因的**——GitHub release CDN 对多并发 per-IP throttle 很狠，VN 网络实测 1 路 4.7 MB/s，4 路掉到 150 KB/s。只在私有 S3 / 内网镜像这种不限速的场景调高（详 DESIGN §25.2） |
+| `LUBAN_ENABLE_HTTP2` | unset | =1 让 WinHTTP 协商 HTTP/2。**默认 H1.1**（v0.2.6 翻），因为 release CDN（Fastly 托管的 objects.githubusercontent.com）对 VN 客户端 H2 慢得离谱（实测 14.9 KiB/s 对 H1.1 47 MiB/s，~3200× 差）。如果你网络下 H2 更快才开 |
+| `LUBAN_ENABLE_HTTP3` | unset | =1 在已开 H2 基础上再打开 H3 (QUIC over UDP/443)。**默认关**——VN/CN 网络下 UDP/443 被节流时 H3 协商超时 ~10s 才回退 H2，体感巨慢 |
 | `LUBAN_EXTRACT_THREADS` | min(8, hw_concurrency) | archive::extract worker 数（0 = 单线程）。llvm-mingw 测 4 路对单流 ~5× 加速，超过 ~8 SSD 写饱和无意义 |
 | `LUBAN_PROGRESS` | unset | =1 强制开 progress bar（非 TTY 也开） |
 | `LUBAN_NO_PROGRESS` | unset | =1 关 progress bar |

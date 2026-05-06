@@ -181,29 +181,35 @@ struct ParsedUrl {
     bool secure = true;
 };
 
-// Enable HTTP/2 on a WinHTTP session handle. HTTP/3 is opt-in via
-// LUBAN_ENABLE_HTTP3=1 — see below for why.
+// Configure HTTP protocol versions on a WinHTTP session handle.
+// **Default: HTTP/1.1.** Opt-in to h2 / h3 via env vars.
 //
-// Empirical (VN -> github.com release CDN, 2026-05-06): single HTTP/1.1
-// stream tops out around 50 KB/s; HTTP/2 over the same connection runs
-// 4 MB/s — same throttle, but the protocol's multiplexing inside one
-// TCP avoids the per-IP connection-count limit GitHub's CDN imposes.
+// Why h1.1 default (v0.2.6 flip):
 //
-// HTTP/3 (Win11 22H2+) was previously OR'd in unconditionally on the
-// theory that "older Windows just ignores unknown flags". On Win11 with
-// h3 actually negotiated, the QUIC handshake hangs ~10s before falling
-// back to TCP/h2 on networks where UDP/443 is throttled or filtered
-// (VN/CN networks routinely qualify). User reported `bp src update`
-// taking 20s for a 10 KiB tarball — `curl --http2` against the same
-// URL from the same machine: 780ms. 25× slowdown, root cause confirmed
-// as h3 negotiation.
+//   v0.1.4 turned HTTP/2 on by default after a measurement showing h2
+//   delivered "80× faster than h1.1" against GitHub. That measurement
+//   came from codeload.github.com (the bp-tarball / source-zip endpoint
+//   on GitHub's own AWS infra). The release-asset URL — which is what
+//   `bp apply` hits 90% of the time — redirects to
+//   objects.githubusercontent.com, hosted on Fastly. Fastly's h2
+//   behaviour against VN/CN clients is the opposite story:
 //
-// Default HTTP/2 only. Opt-in to h3 with LUBAN_ENABLE_HTTP3=1 if you're
-// on a network where UDP/443 to GitHub's CDN works.
+//     User report (2026-05-06, v0.2.5):
+//       luban (WinHTTP h2)  → cmake-4.3.2.zip @ 14.9 KiB/s
+//       LUBAN_FORCE_HTTP1=1 → same URL       @ 47.7 MiB/s
+//       curl --http1.1      → same URL       @ 37   MiB/s
+//
+//   ~3200× delta, single user but extreme. h1.1 is also the safer
+//   baseline (no surprise multiplexing-window collapse, no h3 QUIC
+//   handshake timeout, no Fastly stream-throttle). Users who measure
+//   h2 faster on their own network can opt in.
+//
+// LUBAN_PARALLEL_CHUNKS defaults to 1 because parallel h1.1 streams
+// trip GitHub's per-IP connection-count limit; default-h1.1 + single
+// stream stays the safe shape. (See CLAUDE.md env vars table.)
 //
 // WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL is option 133, available since
-// Windows 10 1607. Define constants ourselves so the build doesn't
-// depend on which SDK header version is around.
+// Windows 10 1607.
 #ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
 #define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 133
 #endif
@@ -214,21 +220,17 @@ struct ParsedUrl {
 #define WINHTTP_PROTOCOL_FLAG_HTTP3 0x2
 #endif
 void enable_http2_on_session(HINTERNET session) {
-    // LUBAN_FORCE_HTTP1=1 skips the protocol-upgrade option entirely,
-    // leaving WinHTTP on its HTTP/1.1 default. Escape hatch for the
-    // case where HTTP/2 to a specific GitHub CDN endpoint (Fastly-
-    // hosted objects.githubusercontent.com is the known offender on
-    // VN networks — observed 14.9 KiB/s via WinHTTP+h2 vs 37 MiB/s
-    // via curl+h1.1 on the same machine and same URL, ~2500× delta)
-    // pessimizes throughput. The whole point of v0.1.4's HTTP/2
-    // switch was the codeload.github.com path being faster on h2;
-    // turns out that's not symmetric across all GitHub endpoints.
-    if (std::getenv("LUBAN_FORCE_HTTP1") != nullptr) return;
+    // Default behaviour: do nothing — WinHTTP stays on its HTTP/1.1
+    // baseline. Opt-in to h2 / h3 by setting the env vars below.
+    bool enable_h2 = std::getenv("LUBAN_ENABLE_HTTP2") != nullptr;
+    bool enable_h3 = std::getenv("LUBAN_ENABLE_HTTP3") != nullptr;
+    if (!enable_h2 && !enable_h3) return;
 
-    DWORD flags = WINHTTP_PROTOCOL_FLAG_HTTP2;
-    if (std::getenv("LUBAN_ENABLE_HTTP3") != nullptr) {
-        flags |= WINHTTP_PROTOCOL_FLAG_HTTP3;
-    }
+    DWORD flags = 0;
+    // h3 implies h2 — WinHTTP needs the h2 flag set as a fallback
+    // for negotiation if QUIC fails.
+    if (enable_h2 || enable_h3) flags |= WINHTTP_PROTOCOL_FLAG_HTTP2;
+    if (enable_h3)              flags |= WINHTTP_PROTOCOL_FLAG_HTTP3;
     WinHttpSetOption(session, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
                      &flags, sizeof(flags));
     // No error check: opt-in. If the OS doesn't recognize the option
