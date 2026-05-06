@@ -87,13 +87,48 @@ function Mirror-Url($u) {
 # missing — extremely unlikely on Win10 1803+ but defensive doesn't hurt.
 $curlExe = (Get-Command curl.exe -ErrorAction SilentlyContinue)?.Source
 
+# VN/CN networks regularly get TCP RST mid-download against GitHub's
+# release CDN (curl exit 56). Retry with exponential backoff + curl's
+# `-C -` so the next attempt resumes from the partial .part file rather
+# than restarting from byte 0. The retry loop is in PowerShell (not
+# curl's --retry) so old curl versions without --retry-all-errors still
+# get the resume behavior. We do NOT delete $dest between attempts —
+# resume is the whole point.
 function Download-File($url, $dest) {
-    if ($curlExe) {
-        & $curlExe -sSL --fail --max-time 300 -A 'luban-installer' -o $dest $url
-        if ($LASTEXITCODE -ne 0) { throw "curl exited $LASTEXITCODE downloading $url" }
-    } else {
-        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 300
+    $maxAttempts = 6
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        if ($attempt -gt 1) {
+            $sleep = [Math]::Min(30, [int][Math]::Pow(2, $attempt - 1))  # 2,4,8,16,30,30
+            Write-Host "  retry $attempt/$maxAttempts in ${sleep}s (last: $lastError)..."
+            Start-Sleep -Seconds $sleep
+        }
+        if ($curlExe) {
+            # -fSL: fail on HTTP error, follow redirects, show errors.
+            # -C -: resume from existing $dest size (0 on first attempt = normal GET;
+            #       N on retry = Range request from byte N, server has to honor it
+            #       and GitHub's S3-backed CDN does).
+            # --connect-timeout: bound initial TCP+TLS handshake separately so we
+            #       don't burn the whole --max-time on a stuck connect.
+            # --max-time bumped from 300 to 900 — slow VN networks need it for the
+            #       6 MB MinGW asset.
+            & $curlExe -fSL --connect-timeout 30 --max-time 900 `
+                -C - -A 'luban-installer' -o $dest $url
+            if ($LASTEXITCODE -eq 0) { return }
+            $lastError = "curl exit $LASTEXITCODE"
+        } else {
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900
+                return
+            } catch {
+                $lastError = $_.Exception.Message
+            }
+        }
     }
+    $hint = if (-not $mirror) {
+        "`n  hint: set `$env:LUBAN_GITHUB_MIRROR_PREFIX (e.g. 'https://ghfast.top') and retry"
+    } else { '' }
+    throw "downloading $url failed after $maxAttempts attempts ($lastError)$hint"
 }
 
 # ---- discover latest release -----------------------------------------------
