@@ -4,7 +4,7 @@
 :: Designed for CI: zero ambient state, isolated temp project, clear pass/fail.
 ::
 :: Pre-req: luban + toolchain already installed (caller has applied
-:: `embedded:cpp-base` and run `luban env --user`). The script does NOT
+:: `main/cpp-toolchain` and run `luban env --user`). The script does NOT
 :: bootstrap luban itself.
 ::
 :: Exit codes:

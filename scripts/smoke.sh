@@ -5,7 +5,7 @@
 # target add/build -> remove/sync -> doctor.
 #
 # Pre-req: luban + toolchain already on PATH (caller has applied
-# `embedded:cpp-base` and run `luban env --user` and re-sourced their
+# `main/cpp-toolchain` and run `luban env --user` and re-sourced their
 # shell rc). The script does NOT bootstrap luban itself.
 #
 # Exit codes:

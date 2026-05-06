@@ -248,10 +248,17 @@ if (Test-OnUserPath $installDir) {
     }
 }
 
-# ---- toolchain bootstrap (prompted, idempotent) ----------------------------
-# luban.exe embeds zero blueprints (议题 AG); the foundation set lives in
-# Coh1e/luban-bps. Skip prompting if `main` is already registered AND
-# cpp-base is in the applied generation — the user is just refreshing.
+# ---- bootstrap (idempotent) ------------------------------------------------
+# luban.exe embeds zero blueprints (议题 AG); the foundation + extras live
+# in Coh1e/luban-bps.
+#
+# Two-phase install:
+#   1. main/foundation    — git + ssh + gcm + lfs. ALWAYS pre-applied;
+#                           it's the universal prereq of practically every
+#                           other bp (including cpp-toolchain). No prompt.
+#   2. main/cpp-toolchain — Clang + cmake + ninja + vcpkg. PROMPTED, since
+#                           someone installing luban for dotfile / CLI use
+#                           may not want a 270-binary C++ stack on first run.
 $lubanExe = Join-Path $installDir 'luban.exe'
 
 function Test-BpSourceRegistered($name) {
@@ -271,28 +278,32 @@ function Test-BpApplied($bp) {
 }
 
 $mainRegistered = Test-BpSourceRegistered 'main'
-$cppApplied     = Test-BpApplied 'cpp-base'
 
+# Phase 1: ensure main is registered + foundation is applied. No prompt.
 Write-Host ""
-if ($mainRegistered -and $cppApplied) {
-    Write-Host "main/cpp-base already applied — bootstrap skipped."
+if (-not $mainRegistered) {
+    Write-Host "→ Registering Coh1e/luban-bps as `main` (one-time, no prompt)..."
+    Invoke-LubanLive @('bp', 'src', 'add', 'Coh1e/luban-bps', '--name', 'main', '--yes')
+    $mainRegistered = $true
+}
+
+if (Test-BpApplied 'foundation') {
+    Write-Host "→ main/foundation already applied — skipping."
 } else {
-    if ($mainRegistered) {
-        $ans = Read-Host "main is registered. Apply main/cpp-base now? (toolchain: llvm-mingw / cmake / ninja / git / vcpkg) [Y/n]"
-    } else {
-        $ans = Read-Host "Register Coh1e/luban-bps and apply main/cpp-base now? (toolchain: llvm-mingw / cmake / ninja / git / vcpkg) [Y/n]"
-    }
+    Write-Host "→ Applying main/foundation (mingit + lfs + gcm + openssh)..."
+    Invoke-LubanLive @('bp', 'apply', 'main/foundation')
+}
+
+# Phase 2: prompt for cpp-toolchain.
+Write-Host ""
+if (Test-BpApplied 'cpp-toolchain') {
+    Write-Host "main/cpp-toolchain already applied — bootstrap done."
+} else {
+    $ans = Read-Host "Apply main/cpp-toolchain now? (Clang + cmake + ninja + vcpkg, ~600 MB) [Y/n]"
     if ($ans -eq '' -or $ans -match '^[Yy]') {
-        if (-not $mainRegistered) {
-            Invoke-LubanLive @('bp', 'src', 'add', 'Coh1e/luban-bps', '--name', 'main', '--yes')
-        }
-        Invoke-LubanLive @('bp', 'apply', 'main/cpp-base')
+        Invoke-LubanLive @('bp', 'apply', 'main/cpp-toolchain')
     } else {
-        Write-Host "Later, run:"
-        if (-not $mainRegistered) {
-            Write-Host "  luban bp src add Coh1e/luban-bps --name main --yes"
-        }
-        Write-Host "  luban bp apply main/cpp-base"
+        Write-Host "Later, run:  luban bp apply main/cpp-toolchain"
     }
 }
 

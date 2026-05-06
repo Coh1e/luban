@@ -9,8 +9,9 @@
 # this script will mirror install.ps1: download luban + luban-shim into
 # ~/.local/bin, verify SHA256, then offer:
 #   luban bp src add Coh1e/luban-bps --name main --yes
-#   luban bp apply main/cpp-base
-# (the foundation toolchain blueprint, served from the external bp source).
+#   luban bp apply main/foundation       # mingit + lfs + gcm + openssh (always)
+#   luban bp apply main/cpp-toolchain    # Clang + cmake + ninja + vcpkg (prompted)
+# (the foundation + cpp-toolchain blueprints, served from the external bp source).
 
 set -euo pipefail
 

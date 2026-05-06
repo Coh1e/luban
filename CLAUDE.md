@@ -18,9 +18,9 @@
 
 ```pwsh
 luban bp src add Coh1e/luban-bps --name main   # 一次性，trust prompt
-luban bp apply main/git-base                   # git+lfs+gcm+openssh
-luban bp apply main/cpp-base                   # C++ 工具链（依赖 git-base）
-luban bp apply main/cli-base                   # 工作台 CLI（zoxide / starship / fd / ripgrep）
+luban bp apply main/foundation                 # git+lfs+gcm+openssh（install.ps1 默认预装）
+luban bp apply main/cpp-toolchain              # C++ 工具链（依赖 foundation）
+luban bp apply main/cli-tools                  # 工作台 CLI（zoxide / starship / fd / ripgrep）
 luban bp apply main/onboarding                 # 个人定制
 ```
 
@@ -36,8 +36,9 @@ project — projects build on machines without luban installed.
 luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 
 - **blueprint（图纸 / 能力包）**：让机器获得某个能力所需的声明集合。
-  `git-base` = git+lfs+gcm+openssh；`cpp-base` = C++ 工具链；
-  `cli-base` = 工作台 CLI。一张图纸 ≈ 一种能力。所有 bp 来自外部
+  `foundation` = git+lfs+gcm+openssh（必装，install.ps1 不询问预装）；
+  `cpp-toolchain` = C++ 工具链；`cli-tools` = 工作台 CLI。
+  一张图纸 ≈ 一种能力。所有 bp 来自外部
   bp source（`luban bp src add` 注册，§9.10）。
 - **tool（工具 / 可执行物）**：实现能力靠的程序。一条 `tool` 声明对应一个
   PATH 上能调用的二进制（cmake / ninja / git / ssh / ...），由 luban 装在
@@ -50,8 +51,8 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 - blueprint 是顶层容器；tool 和 config 是它的内容
 - 同名的 `tool` 与 `config` 默认绑定同一个 X（如 `tool.bat` + `config.bat`）；
   显式绑定通过 `for_tool = "Y"` 覆盖（schema 化关系），缺省 = X
-- 两边各有独立 lifecycle：cli-base 可以只写 `config.git`（不装 git，
-  由 git-base 装），或只写 `tool.gh`（不配 gh）。这是 Windows 现实——很多
+- 两边各有独立 lifecycle：cli-tools 可以只写 `config.git`（不装 git，
+  由 foundation 装），或只写 `tool.gh`（不配 gh）。这是 Windows 现实——很多
   工具来自 Scoop / 系统 / 同事配的环境，luban 不必"也得装"才能配
 
 > **schema 命名 in-flight**：上面用单数 `tool` / `config` 是已对齐的目标
@@ -187,8 +188,8 @@ luban.exe **零内嵌 bp**——基础 3 件 + onboarding 都在
 https://github.com/Coh1e/luban-bps。改图纸 = 改外部 repo，跟 luban.exe
 版本解耦。
 
-1. 选层：网络/工程通用工具进 `git-base.toml`；C++ 编译相关进 `cpp-base.toml`；
-   日常 CLI 利器进 `cli-base.toml`。新单工具图纸 = 新 .toml 在你 bp
+1. 选层：网络/git 通用工具进 `foundation.toml`；C++ 编译相关进 `cpp-toolchain.toml`；
+   日常 CLI 利器进 `cli-tools.toml`。新单工具图纸 = 新 .toml 在你 bp
    source repo 的 `blueprints/` 下（**luban 这边不动代码**）。
 2. 在 `[tools.X]` 节加 `source = "github:owner/repo"`；非 GitHub releases 用
    显式的 `[[tools.X.platform]]` block（url + sha256 + bin）。多 binary 工具
@@ -239,7 +240,7 @@ third job stitches them into a single GitHub release.
 |-----------------------------|------------------------|-------|--------------|
 | `luban-msvc.exe`            | windows-latest cl /MT  | ~3 MB | **default**. Smaller binary; fastest startup; no MinGW dependency on the dev box. |
 | `luban-shim-msvc.exe`       | -                      | ~150 KB | shim twin for MSVC luban |
-| `luban-mingw.exe`           | llvm-mingw 20260421 -static | ~6 MB | legacy / portability fallback. Same toolchain `cpp-base` installs, so dev/release are bit-identical. |
+| `luban-mingw.exe`           | llvm-mingw 20260421 -static | ~6 MB | legacy / portability fallback. Same toolchain `cpp-toolchain` installs, so dev/release are bit-identical. |
 | `luban-shim-mingw.exe`      | -                      | ~600 KB | shim twin for MinGW luban |
 | `SHA256SUMS`                | -                      | -     | covers all 4 binaries |
 
