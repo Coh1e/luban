@@ -43,18 +43,18 @@ struct DownloadOptions {
     int retries = 3;
     int timeout_seconds = 30;
 
-    // Chunked HTTP Range download. When `parallel_chunks > 1` AND the server
-    // returns a HEAD response with Content-Length >= chunk_threshold AND
-    // accepts byte ranges, luban issues N concurrent GETs with
-    // `Range: bytes=<lo>-<hi>` headers and stitches the file together.
-    // Primarily a CDN-throttle bypass: a single TCP stream is rate-limited
-    // by the server's per-connection cap; multiple connections aggregate
-    // closer to link ceiling. For LLVM-MinGW (~280 MB) the speedup is
-    // typically 1.5-3x.
+    // (v0.3.0 dead, kept for ABI / call-site stability) Chunked HTTP Range
+    // download. v0.2.x used these to multi-stream large downloads via
+    // WinHTTP's per-thread Range GET. v0.3.0 replaced WinHTTP with
+    // curl.exe subprocess, which is single-stream by design (curl
+    // negotiates h1.1/h2/h3 per host correctly enough that multi-stream
+    // is no longer the fastest path; on GitHub's CDN it was actively
+    // counter-productive — per-IP throttle hit ~150 KB/s aggregate at
+    // 4 streams vs ~5 MB/s on 1).
     //
-    // Defaults to 0 (single-stream — identical to v0.1.x behavior). Component
-    // install overrides to 4. Falls back to single-stream cleanly when HEAD
-    // fails, the file is small, or the server doesn't advertise byte ranges.
+    // Both fields are now ignored. Existing call sites that set
+    // parallel_chunks = 1 / 4 still compile but the request goes
+    // single-stream regardless.
     int parallel_chunks = 0;
     int64_t chunk_threshold = 8 * 1024 * 1024;  // 8 MiB
 };

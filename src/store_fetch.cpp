@@ -103,23 +103,12 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     download::DownloadOptions dlopts;
     dlopts.expected_hash = *hash_spec;
     dlopts.label = opts.label.empty() ? std::string(artifact_id) : opts.label;
-    // Single-stream by default. Empirical (VN→github.com, 2026-05-06):
-    //   1 connection → 4.7 MB/s
-    //   4 connections → 150 KB/s aggregate (3 of 4 chunks throttled +
-    //                  1 connection reset by CDN)
-    // GitHub's release CDN per-IP-throttles aggressively when it sees
-    // multiple parallel TCP connections to the same asset. Browsers
-    // appear fast because HTTP/2 multiplexes inside a single connection,
-    // never tripping the throttle. Until WinHTTP HTTP/2 is wired up,
-    // single-stream is the right default.
-    //
-    // LUBAN_PARALLEL_CHUNKS=N opts back into multi-stream for networks
-    // where the CDN doesn't throttle (private S3 buckets, internal
-    // mirrors, etc.). 0 explicitly disables.
-    dlopts.parallel_chunks = 1;
-    if (const char* env = std::getenv("LUBAN_PARALLEL_CHUNKS")) {
-        try { dlopts.parallel_chunks = std::stoi(env); } catch (...) {}
-    }
+    // v0.3.0 retired multi-stream: Win32 download backend is now curl.exe
+    // subprocess (single TCP per file, lets curl negotiate h1.1/h2/h3
+    // per-host); POSIX libcurl path was always single-stream too. The
+    // old `parallel_chunks` field on DownloadOptions is now ignored —
+    // single-stream is the only path. LUBAN_PARALLEL_CHUNKS env var is
+    // a no-op (mentioned in CLAUDE.md "obsoleted" note).
     auto dl = download::download(std::string(url), archive_path, dlopts);
     if (!dl) {
         return std::unexpected("download failed (url=" + std::string(url) +
