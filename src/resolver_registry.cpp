@@ -36,4 +36,16 @@ std::optional<Entry> ResolverRegistry::find(std::string_view scheme) const {
     return it->second;
 }
 
+void ResolverRegistry::register_native(std::string scheme,
+                                        luban::resolver_types::ResolverFn fn) {
+    native_[std::move(scheme)] = std::move(fn);
+}
+
+const luban::resolver_types::ResolverFn*
+ResolverRegistry::find_native(std::string_view scheme) const {
+    auto it = native_.find(std::string(scheme));
+    if (it == native_.end()) return nullptr;
+    return &it->second;
+}
+
 }  // namespace luban::resolver_registry

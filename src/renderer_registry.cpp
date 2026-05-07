@@ -45,4 +45,20 @@ std::optional<Entry> RendererRegistry::find(std::string_view name) const {
     return it->second;
 }
 
+void RendererRegistry::register_native(std::string name,
+                                        luban::render_types::RendererFns fns) {
+    // Last-wins: assigning into the map drops the prior std::function value.
+    // Lua-backed fns' shared_ptr<LuaRef> captures release on dtor — the
+    // engine's refs are reclaimed automatically. No manual luaL_unref here
+    // (that's the whole point of the AH boundary — this TU is Lua-free).
+    native_[std::move(name)] = std::move(fns);
+}
+
+const luban::render_types::RendererFns*
+RendererRegistry::find_native(std::string_view name) const {
+    auto it = native_.find(std::string(name));
+    if (it == native_.end()) return nullptr;
+    return &it->second;
+}
+
 }  // namespace luban::renderer_registry

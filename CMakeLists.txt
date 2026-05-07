@@ -127,6 +127,7 @@ set(LUBAN_SOURCES
     src/progress.cpp
     src/renderer_registry.cpp
     src/resolver_registry.cpp
+    src/lua_frontend.cpp
     src/blueprint_toml.cpp
     src/blueprint_lua.cpp
     src/blueprint_lock.cpp
@@ -326,6 +327,7 @@ if(LUBAN_BUILD_TESTS)
         src/config_renderer.cpp
         src/renderer_registry.cpp
         src/resolver_registry.cpp
+        src/lua_frontend.cpp
         src/generation.cpp
         src/xdg_shim.cpp
         src/blueprint_reconcile.cpp

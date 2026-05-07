@@ -33,6 +33,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "render_types.hpp"
+
 struct lua_State;
 
 namespace luban::renderer_registry {
@@ -40,6 +42,10 @@ namespace luban::renderer_registry {
 /// One registered renderer: function refs into the engine's LUA_REGISTRYINDEX.
 /// `L` is the engine the refs belong to — caller must use the SAME lua_State*
 /// when invoking. Mismatching engines crashes (or at best returns garbage).
+///
+/// **Deprecated** — kept for the legacy `register_lua` path during the
+/// AH/AI staged migration (DESIGN §24.1). Phase 5 of the decoupling plan
+/// removes it. New code uses `RendererFns` (see `register_native`).
 struct Entry {
     lua_State* L = nullptr;
     int target_path_ref = -1;   ///< LUA_NOREF if uninit; otherwise a luaL_ref
@@ -54,6 +60,8 @@ public:
     RendererRegistry(const RendererRegistry&) = delete;
     RendererRegistry& operator=(const RendererRegistry&) = delete;
 
+    // ---- Legacy Lua-coupled API (phase-out target, see DESIGN §24.1 AH) --
+
     /// Register a renderer named `name` whose target_path + render functions
     /// are at the given LUA_REGISTRYINDEX refs (pre-luaL_ref'd by caller).
     /// Replaces any existing entry of the same name (last-wins semantics
@@ -61,15 +69,34 @@ public:
     void register_lua(std::string name, lua_State* L,
                       int target_path_ref, int render_ref);
 
-    /// Look up a renderer by name. Returns nullopt if absent.
+    /// Look up a legacy Lua-backed renderer by name. Returns nullopt if absent.
     [[nodiscard]] std::optional<Entry> find(std::string_view name) const;
 
-    /// Whether any renderers are registered. Cheap shortcut for callers
-    /// that want to skip the registry lookup entirely on TOML bps.
-    [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
+    // ---- AH-aligned API (std::function callback, frontend-agnostic) ------
+
+    /// Register a renderer by std::function pair. Frontend-agnostic — caller
+    /// may have built `fns` from Lua refs (via `lua_frontend::wrap_*`), a
+    /// pure C++ lambda (tests, future native plugins), or any other source.
+    /// Replaces any existing entry of the same name; the previous fns are
+    /// destroyed (Lua-backed ones get their refs unrefd via the
+    /// shared_ptr<LuaRef> in their captures).
+    void register_native(std::string name, luban::render_types::RendererFns fns);
+
+    /// Look up a native renderer by name. Returns a borrowed pointer that
+    /// stays valid until the next mutating call on this registry — caller
+    /// must not store it across other register_* calls.
+    [[nodiscard]] const luban::render_types::RendererFns*
+    find_native(std::string_view name) const;
+
+    /// Whether any renderers are registered (in either map). Cheap shortcut
+    /// for callers that want to skip the registry lookup entirely.
+    [[nodiscard]] bool empty() const noexcept {
+        return entries_.empty() && native_.empty();
+    }
 
 private:
     std::unordered_map<std::string, Entry> entries_;
+    std::unordered_map<std::string, luban::render_types::RendererFns> native_;
 };
 
 }  // namespace luban::renderer_registry
