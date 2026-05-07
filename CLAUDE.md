@@ -150,7 +150,7 @@ templates/help/                # 长 --help 文本，编进二进制
 .github/workflows/build.yml    # windows MSVC + MinGW dual-build, tag→release
 ```
 
-## Don't break these (8 不变量；详 DESIGN.md §6)
+## Don't break these (10 不变量；详 DESIGN.md §6 + §24.1 AH/AI)
 
 1. **cmake 仍是主体**——不发明 IR、不替换 manifest
 2. **`luban.cmake` schema 稳定**——已在野的项目 git-tracked
@@ -160,6 +160,14 @@ templates/help/                # 长 --help 文本，编进二进制
 6. **零 UAC、HKCU only**
 7. **`luban.exe` 必须 static-linked**——fresh Win10 无 PATH 即可跑
 8. **toolchain ≠ 项目库**——`luban add cmake` 必须被拒绝
+9. **core C++ 不引 `lua.h`**——`renderer_registry` / `resolver_registry` /
+   `config_renderer` / `source_resolver` / `blueprint_apply` 这 5 个 core 模块
+   只看到 `std::function<...>`；任何 lua C API 调用集中在 `src/lua_frontend.cpp`
+   一个 TU（DESIGN §24.1 AH）
+10. **每次 apply 都构造 Engine + 两 registries**——TOML bp 也走 Lua engine
+    （sub-ms 成本），5 个内置 renderer 也注册成 `std::function` 进 registry。
+    builtin / bp-registered / 未来 native plugin / JS 在 dispatch 上无差别——
+    "无双码路径"（DESIGN §9.9 / §24.1 AI）
 
 **放宽**：第三方 vendor 优先 single-header；Lua 5.4 与 QuickJS-NG 是
 当前两个多文件例外（Lua 主、QJS 副，DESIGN §10）。

@@ -48,19 +48,6 @@ History (already-shipped milestones, ADRs, S1-S8 step ledger) lives in
 
 ### Authoring
 
-- **`luban.register_*` builtin renderer migration to registry path**
-  ✅ Lua-side `luban.register_renderer` (v0.4.0) and `register_resolver`
-  (v0.4.2) are shipped — see DESIGN.md issue M closure row. Engine
-  lifetime extended via parse-twice in commands/blueprint.cpp run_apply
-  (long-lived Engine + two registries that survive parse → lock-resolve →
-  render). What's left is cosmetic: the 5 builtin renderers
-  (`templates/configs/<X>.lua`) still go through their per-call embedded
-  source dispatch in `config_renderer::render()`, while bp-registered
-  renderers go through the new registry path. DESIGN §9.9 line 656
-  promises "无双码路径" — a future cleanup loads builtins into the
-  registry at apply start so dispatch is uniform. Doesn't change behavior;
-  reduces surface area by ~50 lines of dual-codepath logic.
-
 - **`pwsh-module:` auto-latest version**
   v0.4.1's `pwsh-module:Name` requires explicit `version = "X.Y.Z"`. To
   support `version = "*"` (or auto-latest), the resolver needs to query
