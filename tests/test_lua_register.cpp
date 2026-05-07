@@ -27,8 +27,11 @@ extern "C" {
 #include "config_renderer.hpp"
 #include "doctest.h"
 #include "lua_engine.hpp"
+#include "lua_frontend.hpp"
+#include "render_types.hpp"
 #include "renderer_registry.hpp"
 #include "resolver_registry.hpp"
+#include "resolver_types.hpp"
 #include "source_resolver.hpp"
 
 using luban::lua::Engine;
@@ -37,65 +40,119 @@ namespace sr = luban::resolver_registry;
 namespace cr = luban::config_renderer;
 
 // ---- Registry primitives -----------------------------------------------
+//
+// Post-AH (DESIGN §24.1): the registry stores std::function callbacks,
+// not Lua refs. These primitive tests use pure C++ lambdas — proving
+// the registry has zero Lua coupling and can be driven by any frontend
+// (Lua via lua_frontend, native plugins, tests, etc.).
 
-TEST_CASE("RendererRegistry: register, find, dtor cleans up refs") {
+TEST_CASE("RendererRegistry: register_native, find_native, last-wins") {
+    rr::RendererRegistry reg;
+
+    auto make_fns = [](std::string tag) {
+        luban::render_types::RendererFns fns;
+        fns.target_path = [tag](const nlohmann::json&, const cr::Context&) {
+            return std::expected<std::string, std::string>{"path:" + tag};
+        };
+        fns.render = [tag](const nlohmann::json&, const cr::Context&) {
+            return std::expected<std::string, std::string>{"content:" + tag};
+        };
+        return fns;
+    };
+
+    reg.register_native("starship", make_fns("v1"));
+
+    auto* found = reg.find_native("starship");
+    REQUIRE(found != nullptr);
+    cr::Context ctx;
+    nlohmann::json cfg = nlohmann::json::object();
+    auto tp = found->target_path(cfg, ctx);
+    REQUIRE(tp.has_value());
+    CHECK(*tp == "path:v1");
+    auto content = found->render(cfg, ctx);
+    REQUIRE(content.has_value());
+    CHECK(*content == "content:v1");
+
+    // Unknown name → nullptr.
+    CHECK(reg.find_native("nonexistent") == nullptr);
+
+    // Last-wins: re-register replaces fns. The old captures (if Lua-backed)
+    // would have their shared_ptr<LuaRef> released here; with C++ lambdas
+    // we just verify the new fns are reachable.
+    reg.register_native("starship", make_fns("v2"));
+    auto* refound = reg.find_native("starship");
+    REQUIRE(refound != nullptr);
+    auto tp2 = refound->target_path(cfg, ctx);
+    REQUIRE(tp2.has_value());
+    CHECK(*tp2 == "path:v2");
+}
+
+TEST_CASE("ResolverRegistry: register_native, find_native, last-wins") {
+    sr::ResolverRegistry reg;
+
+    auto make_fn = [](std::string url_tag) {
+        return luban::resolver_types::ResolverFn{
+            [url_tag](const luban::blueprint::ToolSpec& spec)
+                -> std::expected<luban::blueprint_lock::LockedPlatform, std::string> {
+                luban::blueprint_lock::LockedPlatform plat;
+                plat.url = "https://example.test/" + url_tag + "/" + spec.name;
+                plat.sha256 = "deadbeef";
+                return plat;
+            }};
+    };
+
+    reg.register_native("emsdk", make_fn("first"));
+
+    auto* found = reg.find_native("emsdk");
+    REQUIRE(found != nullptr);
+    luban::blueprint::ToolSpec spec;
+    spec.name = "tool42";
+    auto plat = (*found)(spec);
+    REQUIRE(plat.has_value());
+    CHECK(plat->url == "https://example.test/first/tool42");
+
+    CHECK(reg.find_native("nope") == nullptr);
+
+    reg.register_native("emsdk", make_fn("second"));
+    auto* refound = reg.find_native("emsdk");
+    REQUIRE(refound != nullptr);
+    auto plat2 = (*refound)(spec);
+    REQUIRE(plat2.has_value());
+    CHECK(plat2->url == "https://example.test/second/tool42");
+}
+
+TEST_CASE("RendererRegistry: dtor releases Lua-backed refs via shared_ptr") {
+    // Validate the AH boundary: a Lua-backed RendererFns wrapped via
+    // lua_frontend gets its refs released when the registry destructs.
+    // We can't directly observe luaL_unref, but we can verify the engine
+    // survives the registry's dtor (no UB / no crash from dangling refs).
     Engine e;
     {
         rr::RendererRegistry reg;
-        e.attach_registry(&reg);
-
-        // Manually deposit two refs so we don't need a Lua test fixture.
-        // (The api_register_renderer C function takes the same path; it's
-        // the one tested by the end-to-end case below.)
         lua_State* L = e.state();
-        lua_pushinteger(L, 42);
-        int ref_a = luaL_ref(L, LUA_REGISTRYINDEX);
-        lua_pushinteger(L, 99);
-        int ref_b = luaL_ref(L, LUA_REGISTRYINDEX);
-        reg.register_lua("starship", L, ref_a, ref_b);
 
-        auto found = reg.find("starship");
-        REQUIRE(found.has_value());
-        CHECK(found->L == L);
-        CHECK(found->target_path_ref == ref_a);
-        CHECK(found->render_ref == ref_b);
+        // Push two trivial functions and ref them (mimics what
+        // api_register_renderer does after validating the module table).
+        luaL_dostring(L, "return function() return \"path/x\" end");
+        int tp_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        luaL_dostring(L, "return function() return \"content-x\" end");
+        int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-        // Unknown name → nullopt.
-        CHECK_FALSE(reg.find("nonexistent").has_value());
+        reg.register_native("foo",
+            luban::lua_frontend::wrap_renderer_module(L, tp_ref, r_ref));
 
-        // Last-wins: re-register replaces refs (and unrefs the old ones,
-        // which is what dtor cleanup verifies indirectly — no asan complain).
-        lua_pushinteger(L, 1);
-        int ref_c = luaL_ref(L, LUA_REGISTRYINDEX);
-        lua_pushinteger(L, 2);
-        int ref_d = luaL_ref(L, LUA_REGISTRYINDEX);
-        reg.register_lua("starship", L, ref_c, ref_d);
-        auto refound = reg.find("starship");
-        REQUIRE(refound.has_value());
-        CHECK(refound->target_path_ref == ref_c);
-        CHECK(refound->render_ref == ref_d);
+        auto* fns = reg.find_native("foo");
+        REQUIRE(fns != nullptr);
+        cr::Context ctx;
+        nlohmann::json cfg = nlohmann::json::object();
+        auto tp = fns->target_path(cfg, ctx);
+        REQUIRE(tp.has_value());
+        CHECK(*tp == "path/x");
     }
-    // Dtor at scope exit unrefs everything; engine is still healthy.
+    // reg destructed → the std::function copies dropped → shared_ptr<LuaRef>
+    // refcounts hit zero → luaL_unref ran on each ref. Engine remains usable.
     CHECK(e.state() != nullptr);
-}
-
-TEST_CASE("ResolverRegistry: register, find, dtor cleans up refs") {
-    Engine e;
-    {
-        sr::ResolverRegistry reg;
-        e.attach_resolver_registry(&reg);
-
-        lua_State* L = e.state();
-        lua_pushinteger(L, 7);
-        int ref_a = luaL_ref(L, LUA_REGISTRYINDEX);
-        reg.register_lua("emsdk", L, ref_a);
-
-        auto found = reg.find("emsdk");
-        REQUIRE(found.has_value());
-        CHECK(found->fn_ref == ref_a);
-        CHECK_FALSE(reg.find("nope").has_value());
-    }
-    CHECK(e.state() != nullptr);
+    luaL_dostring(e.state(), "return 1");  // sanity: engine still works
 }
 
 // ---- End-to-end: register_renderer ---------------------------------------

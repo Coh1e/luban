@@ -1,78 +1,45 @@
-// `renderer_registry` — per-apply lookup table for blueprint-registered
-// config renderers (DESIGN §9.9 议题 M (d), Tier 1 of plan
-// elegant-strolling-hammock.md).
+// `renderer_registry` — per-apply lookup table for config renderers
+// (DESIGN §9.9 议题 M (d) Tier 1; AH/AI dispatch boundary §24.1).
 //
-// A Lua blueprint can call `luban.register_renderer(name, module)` to
-// declare a custom renderer alongside the bp's spec table. At apply time
-// the bp's engine stays alive across both the parse phase and the render
-// phase, so the function references the user wrote can be re-invoked when
-// luban gets to `[config.<name>]` blocks.
+// A blueprint at parse time can call `luban.register_renderer(name, M)`
+// to declare a custom renderer; that flows through lua_engine.cpp's
+// api_register_renderer → lua_frontend::wrap_renderer_module → here as
+// `register_native(name, RendererFns)`. At apply time the
+// config_renderer::render_with_registry path looks up by name via
+// `find_native` and invokes the std::function callbacks directly. The
+// 5 builtin renderers (templates/configs/<X>.lua) are registered the
+// same way at apply start (phase 6 of the AH/AI rollout — currently
+// pending), so dispatch is single-path and bp-registered renderers can
+// shadow builtins last-wins.
 //
 // Lifetime contract:
-//
-//   1. blueprint_apply constructs ONE Engine + ONE RendererRegistry per Lua
-//      blueprint apply. The Engine is attached to the registry's pointer
-//      stash via `attach_registry()` before the bp parse runs.
-//   2. During parse, the bp's `luban.register_renderer(name, M)` calls
-//      Engine's C api_register_renderer, which stores `M.target_path` +
-//      `M.render` as luaL_refs into the engine's LUA_REGISTRYINDEX and
-//      records the (name → refs) mapping here.
-//   3. Render phase calls `find(name)`, gets the refs, pushes them onto
-//      the engine's stack and pcall's them to produce target_path + content.
-//   4. Apply ends → registry destructs → unref all entries (so the engine
-//      doesn't leak refs if it survives somehow).
-//
-// TOML bps don't construct a registry — they have no way to call
-// register_renderer (per DESIGN §9.9 "TOML 只能引用，不能注册"). config_renderer
-// falls back to its existing builtin-embedded path for them.
+//   1. commands/blueprint.cpp constructs ONE Engine + ONE RendererRegistry
+//      per apply. Engine is attached to the registry's pointer stash via
+//      Engine::attach_registry().
+//   2. During the bp's parse-in-engine phase, register_renderer C calls
+//      drop RendererFns into this registry; for Lua-backed entries the
+//      RendererFns capture a shared_ptr<LuaRef> tied to the Engine.
+//   3. Render phase: render_with_registry → find_native → fns(...).
+//   4. Apply ends → registry destructs → std::function copies drop →
+//      shared_ptr<LuaRef> refcounts hit zero → engine refs reclaimed.
 
 #pragma once
 
-#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
 #include "render_types.hpp"
 
-struct lua_State;
-
 namespace luban::renderer_registry {
-
-/// One registered renderer: function refs into the engine's LUA_REGISTRYINDEX.
-/// `L` is the engine the refs belong to — caller must use the SAME lua_State*
-/// when invoking. Mismatching engines crashes (or at best returns garbage).
-///
-/// **Deprecated** — kept for the legacy `register_lua` path during the
-/// AH/AI staged migration (DESIGN §24.1). Phase 5 of the decoupling plan
-/// removes it. New code uses `RendererFns` (see `register_native`).
-struct Entry {
-    lua_State* L = nullptr;
-    int target_path_ref = -1;   ///< LUA_NOREF if uninit; otherwise a luaL_ref
-    int render_ref = -1;
-};
 
 class RendererRegistry {
 public:
     RendererRegistry() = default;
-    ~RendererRegistry();
+    ~RendererRegistry() = default;
 
     RendererRegistry(const RendererRegistry&) = delete;
     RendererRegistry& operator=(const RendererRegistry&) = delete;
-
-    // ---- Legacy Lua-coupled API (phase-out target, see DESIGN §24.1 AH) --
-
-    /// Register a renderer named `name` whose target_path + render functions
-    /// are at the given LUA_REGISTRYINDEX refs (pre-luaL_ref'd by caller).
-    /// Replaces any existing entry of the same name (last-wins semantics
-    /// match what the user would expect from re-running register_renderer).
-    void register_lua(std::string name, lua_State* L,
-                      int target_path_ref, int render_ref);
-
-    /// Look up a legacy Lua-backed renderer by name. Returns nullopt if absent.
-    [[nodiscard]] std::optional<Entry> find(std::string_view name) const;
-
-    // ---- AH-aligned API (std::function callback, frontend-agnostic) ------
 
     /// Register a renderer by std::function pair. Frontend-agnostic — caller
     /// may have built `fns` from Lua refs (via `lua_frontend::wrap_*`), a
@@ -82,20 +49,17 @@ public:
     /// shared_ptr<LuaRef> in their captures).
     void register_native(std::string name, luban::render_types::RendererFns fns);
 
-    /// Look up a native renderer by name. Returns a borrowed pointer that
-    /// stays valid until the next mutating call on this registry — caller
-    /// must not store it across other register_* calls.
+    /// Look up a registered renderer by name. Returns a borrowed pointer
+    /// that stays valid until the next mutating call on this registry —
+    /// caller must not store it across other register_* calls.
     [[nodiscard]] const luban::render_types::RendererFns*
     find_native(std::string_view name) const;
 
-    /// Whether any renderers are registered (in either map). Cheap shortcut
-    /// for callers that want to skip the registry lookup entirely.
-    [[nodiscard]] bool empty() const noexcept {
-        return entries_.empty() && native_.empty();
-    }
+    /// Whether any renderers are registered. Cheap shortcut for callers
+    /// that want to skip the registry lookup entirely.
+    [[nodiscard]] bool empty() const noexcept { return native_.empty(); }
 
 private:
-    std::unordered_map<std::string, Entry> entries_;
     std::unordered_map<std::string, luban::render_types::RendererFns> native_;
 };
 
