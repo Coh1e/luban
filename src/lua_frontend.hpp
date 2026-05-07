@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <expected>
+#include <string>
 #include <string_view>
 
 #include "render_types.hpp"
@@ -43,5 +45,22 @@ namespace luban::lua_frontend {
 /// version, bin}; the return must be a table {url, sha256, bin?}.
 [[nodiscard]] luban::resolver_types::ResolverFn wrap_resolver_fn(
     lua_State* L, int fn_ref);
+
+/// Load a renderer module from Lua source (`return { target_path = ...,
+/// render = ... }`), luaL_ref both fields into `L`'s LUA_REGISTRYINDEX,
+/// and return a `RendererFns` that owns the refs via shared_ptr<LuaRef>.
+///
+/// Used by commands/blueprint.cpp to pre-load the 5 embedded builtins
+/// (templates/configs/<X>.lua) into a registry at apply start so they
+/// dispatch through the same registry path as bp-registered renderers
+/// (DESIGN §9.9 line 656 "无双码路径", §24.1 AI).
+///
+/// Errors (Lua syntax / module-init pcall failure / missing or wrong-
+/// typed M.target_path / M.render fields) propagate via the unexpected
+/// channel — the caller decides whether to refuse the apply or skip
+/// this builtin.
+[[nodiscard]] std::expected<luban::render_types::RendererFns, std::string>
+wrap_embedded_module(lua_State* L, std::string_view module_source,
+                     std::string_view chunkname);
 
 }  // namespace luban::lua_frontend

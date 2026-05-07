@@ -41,6 +41,7 @@
 #include "../generation.hpp"
 #include "../log.hpp"
 #include "../lua_engine.hpp"
+#include "../lua_frontend.hpp"
 #include "../paths.hpp"
 #include "../renderer_registry.hpp"
 #include "../resolver_registry.hpp"
@@ -48,6 +49,12 @@
 #include "../source_resolver.hpp"
 #include "../xdg_shim.hpp"
 #include "bp_source.hpp"
+
+#include "luban/embedded_configs/git.hpp"
+#include "luban/embedded_configs/bat.hpp"
+#include "luban/embedded_configs/fastfetch.hpp"
+#include "luban/embedded_configs/yazi.hpp"
+#include "luban/embedded_configs/delta.hpp"
 
 namespace luban::commands {
 
@@ -57,6 +64,65 @@ namespace fs = std::filesystem;
 namespace bp = luban::blueprint;
 namespace bpl = luban::blueprint_lock;
 namespace gen = luban::generation;
+
+// Builtin renderer table — kept here (rather than in lua_frontend or
+// config_renderer) because pre-loading is the orchestration's job, and
+// config_renderer is now Lua-free (DESIGN §24.1 AH). To add a new
+// builtin: drop a new templates/configs/<X>.lua, append it to the
+// CMakeLists.txt embed_text foreach, #include the header above, and
+// add a row here.
+struct BuiltinRenderer {
+    const char* name;
+    const char* embedded_source;
+};
+constexpr BuiltinRenderer kBuiltinRenderers[] = {
+    {"git",       luban::embedded_configs::git_lua},
+    {"bat",       luban::embedded_configs::bat_lua},
+    {"fastfetch", luban::embedded_configs::fastfetch_lua},
+    {"yazi",      luban::embedded_configs::yazi_lua},
+    {"delta",     luban::embedded_configs::delta_lua},
+};
+
+// Pre-load the 5 builtin renderers (and any user override at
+// <config>/luban/configs/<X>.lua) into `reg` via lua_frontend. Bps that
+// later call luban.register_renderer can shadow these last-wins.
+//
+// Returns the first error encountered; subsequent builtins are skipped
+// (that builtin won't be in the registry, and the apply will fail with
+// "no renderer for ..." when it hits the corresponding [config.X]).
+std::expected<void, std::string> preload_builtin_renderers(
+    luban::lua::Engine& engine,
+    luban::renderer_registry::RendererRegistry& reg) {
+    auto user_override_dir = paths::config_dir() / "configs";
+    for (const auto& b : kBuiltinRenderers) {
+        std::string source;
+        std::string chunkname;
+        fs::path user_path = user_override_dir / (std::string(b.name) + ".lua");
+        std::error_code ec;
+        if (fs::is_regular_file(user_path, ec)) {
+            std::ifstream in(user_path);
+            if (!in) {
+                return std::unexpected("cannot read user override " +
+                                       user_path.string());
+            }
+            std::ostringstream ss;
+            ss << in.rdbuf();
+            source = ss.str();
+            chunkname = "@" + user_path.string();
+        } else {
+            source = b.embedded_source;
+            chunkname = "=embedded:" + std::string(b.name);
+        }
+        auto fns = luban::lua_frontend::wrap_embedded_module(
+            engine.state(), source, chunkname);
+        if (!fns) {
+            return std::unexpected("preload `" + std::string(b.name) +
+                                   "`: " + fns.error());
+        }
+        reg.register_native(b.name, std::move(*fns));
+    }
+    return {};
+}
 
 /// `<config>/blueprints/`. (paths::config_dir() already includes the
 /// "luban" app-name segment per src/paths.cpp; the prefix here is just
@@ -304,6 +370,14 @@ int run_apply(const cli::ParsedArgs& args) {
     luban::resolver_registry::ResolverRegistry apply_resolver_registry;
     apply_engine.attach_registry(&apply_registry);
     apply_engine.attach_resolver_registry(&apply_resolver_registry);
+
+    // Phase 6 (DESIGN §24.1 AI / §9.9 line 656): pre-load the 5 builtin
+    // renderers + any user override into the registry BEFORE the bp's
+    // parse runs. Bp's register_renderer can then shadow them last-wins.
+    if (auto pl = preload_builtin_renderers(apply_engine, apply_registry); !pl) {
+        std::cerr << "preload builtins: " << pl.error() << "\n";
+        return 1;
+    }
 
     if (resolved->source_path.extension() == ".lua") {
         // Re-parse the Lua source inside this long-lived engine so

@@ -198,6 +198,58 @@ luban::render_types::RendererFns wrap_renderer_module(
     return out;
 }
 
+std::expected<luban::render_types::RendererFns, std::string>
+wrap_embedded_module(lua_State* L, std::string_view module_source,
+                     std::string_view chunkname) {
+    // Load + execute the module source; expect it to return a table.
+    if (luaL_loadbuffer(L, module_source.data(), module_source.size(),
+                        std::string(chunkname).c_str()) != LUA_OK) {
+        std::string err = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        return std::unexpected("Lua syntax in " + std::string(chunkname) +
+                               ": " + err);
+    }
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+        std::string err = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        return std::unexpected("module init failed (" + std::string(chunkname) +
+                               "): " + err);
+    }
+    if (!lua_istable(L, -1)) {
+        std::string actual = lua_typename(L, lua_type(L, -1));
+        lua_pop(L, 1);
+        return std::unexpected("module " + std::string(chunkname) +
+                               " must `return { target_path = ..., render = ... }`"
+                               " (got " + actual + ")");
+    }
+    int module_idx = lua_gettop(L);
+
+    // Extract M.target_path; luaL_ref pops the value off the top of the
+    // stack — we push it via getfield then ref.
+    lua_getfield(L, module_idx, "target_path");
+    if (!lua_isfunction(L, -1)) {
+        std::string actual = lua_typename(L, lua_type(L, -1));
+        lua_pop(L, 2);  // pop non-function + module table
+        return std::unexpected("module " + std::string(chunkname) +
+                               ".target_path is " + actual + ", expected function");
+    }
+    int tp_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    lua_getfield(L, module_idx, "render");
+    if (!lua_isfunction(L, -1)) {
+        std::string actual = lua_typename(L, lua_type(L, -1));
+        luaL_unref(L, LUA_REGISTRYINDEX, tp_ref);
+        lua_pop(L, 2);
+        return std::unexpected("module " + std::string(chunkname) +
+                               ".render is " + actual + ", expected function");
+    }
+    int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    lua_pop(L, 1);  // pop the module table; refs survive in REGISTRYINDEX.
+
+    return wrap_renderer_module(L, tp_ref, r_ref);
+}
+
 luban::resolver_types::ResolverFn wrap_resolver_fn(lua_State* L, int fn_ref) {
     auto holder = std::make_shared<LuaRef>(L, fn_ref);
 

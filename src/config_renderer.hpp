@@ -13,13 +13,13 @@
 // wrote) and returns (target_path, content). luban then writes that
 // content to that path via file_deploy.
 //
-// Module lookup order (first hit wins):
-//   1. <config>/luban/configs/<tool>.lua  -- user override
-//   2. embedded_configs::<tool>_lua       -- builtin shipped with luban.exe
-//
-// Both paths run in a fresh sandboxed lua_engine::Engine, so user
-// overrides get the same restricted environment + luban.* API as
-// everything else.
+// Post-AH/AI (DESIGN §24.1): config_renderer is pure callback dispatch
+// over a `RendererRegistry`. The 5 builtin renderers and any user
+// override at <config>/luban/configs/<X>.lua are pre-loaded into the
+// per-apply registry by commands/blueprint.cpp at run_apply start
+// (via lua_frontend::wrap_embedded_module). Bp-registered renderers
+// (luban.register_renderer in a Lua bp) live in the same registry.
+// Single dispatch path, last-wins shadowing.
 
 #pragma once
 
@@ -52,33 +52,10 @@ struct RenderResult {
     std::string content;                   ///< Bytes to write verbatim.
 };
 
-/// Render a [config.X] block. `tool_name` selects the renderer module
-/// (lookup order above). `cfg` is the JSON-shaped config block from the
-/// blueprint. Returns RenderResult on success, error string on failure
-/// (Lua syntax / runtime error / module shape violation / unknown tool).
-[[nodiscard]] std::expected<RenderResult, std::string> render(
-    std::string_view tool_name, const nlohmann::json& cfg,
-    const Context& ctx);
-
-/// Lower-level entry point: render directly from a Lua source string.
-/// Used in tests to verify renderers without going through the file/
-/// embedded lookup path.
-[[nodiscard]] std::expected<RenderResult, std::string> render_with_source(
-    std::string_view lua_source, std::string_view chunk_name,
-    const nlohmann::json& cfg, const Context& ctx);
-
-/// Render via a bp-registered renderer if `registry` knows `tool_name`,
-/// otherwise fall back to `render(tool_name, cfg, ctx)` (builtin embedded
-/// path / user override).
-///
-/// Post-AH: this function is pure callback dispatch — it consults
-/// `registry.find_native()` and invokes the `RendererFns` directly. No
-/// lua_State* anywhere; whether the entry was created from Lua refs or a
-/// pure C++ lambda is invisible at this layer (DESIGN §24.1 AH).
-///
-/// Used by blueprint_apply for Lua-form bps. TOML-form bps go through
-/// the plain `render()` overload instead during the transition phase —
-/// phase 4 unifies both paths through this entry point.
+/// Render a [config.X] block via the apply registry. `tool_name` selects
+/// the renderer (bp-registered name first, then the pre-loaded builtin
+/// for that tool, then user override). Pure callback dispatch — this
+/// function does not touch lua C API directly (DESIGN §24.1 AH).
 [[nodiscard]] std::expected<RenderResult, std::string> render_with_registry(
     const luban::renderer_registry::RendererRegistry& registry,
     std::string_view tool_name, const nlohmann::json& cfg,

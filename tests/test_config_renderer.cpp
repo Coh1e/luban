@@ -1,31 +1,37 @@
 // Unit + integration tests for src/config_renderer.cpp and the 5
 // built-in Lua renderers.
 //
-// These exercise:
-//   - dispatch error paths (unknown tool, broken module shape)
-//   - a custom-source path (render_with_source) for shape coverage
-//   - one realistic config per built-in renderer, verifying both the
-//     target_path and the rendered content shape.
-//
-// Built-in renderer tests don't pin every byte of output (they'd be
-// brittle across formatting tweaks); they assert structural properties
-// instead — "git renderer's output starts with [user]", "fastfetch
-// produces valid JSON", etc.
+// Post-AH/AI (DESIGN §24.1): config_renderer is pure callback dispatch
+// over a RendererRegistry. These tests build a registry pre-loaded with
+// all 5 builtins via lua_frontend::wrap_embedded_module — the same path
+// commands/blueprint.cpp uses in production at apply start. The
+// render_with_source tests (custom Lua module shape coverage) load
+// inline source via wrap_embedded_module directly.
 
 #include <string>
 
+#include "config_renderer.hpp"
 #include "doctest.h"
 #include "json.hpp"
+#include "lua_engine.hpp"
+#include "lua_frontend.hpp"
 #include "paths.hpp"
-#include "config_renderer.hpp"
+#include "renderer_registry.hpp"
+
+#include "luban/embedded_configs/git.hpp"
+#include "luban/embedded_configs/bat.hpp"
+#include "luban/embedded_configs/fastfetch.hpp"
+#include "luban/embedded_configs/yazi.hpp"
+#include "luban/embedded_configs/delta.hpp"
 
 using nlohmann::json;
-namespace pr = luban::config_renderer;
+namespace cr = luban::config_renderer;
+namespace rr = luban::renderer_registry;
 
 namespace {
 
-pr::Context default_ctx() {
-    pr::Context ctx;
+cr::Context default_ctx() {
+    cr::Context ctx;
     ctx.home = "/home/test";
     ctx.xdg_config = "/home/test/.config";
     ctx.blueprint_name = "test-bp";
@@ -37,34 +43,82 @@ bool contains(const std::string& haystack, const std::string& needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
+/// Test fixture: an engine + registry pre-loaded with all 5 builtins.
+/// Mirrors what commands/blueprint.cpp::preload_builtin_renderers does.
+struct BuiltinKit {
+    luban::lua::Engine engine;
+    rr::RendererRegistry registry;
+
+    BuiltinKit() {
+        engine.attach_registry(&registry);
+        load_builtin("git",       luban::embedded_configs::git_lua);
+        load_builtin("bat",       luban::embedded_configs::bat_lua);
+        load_builtin("fastfetch", luban::embedded_configs::fastfetch_lua);
+        load_builtin("yazi",      luban::embedded_configs::yazi_lua);
+        load_builtin("delta",     luban::embedded_configs::delta_lua);
+    }
+
+    void load_builtin(const char* name, const char* source) {
+        auto fns = luban::lua_frontend::wrap_embedded_module(
+            engine.state(), source, std::string("=embedded:") + name);
+        REQUIRE(fns.has_value());
+        registry.register_native(name, std::move(*fns));
+    }
+
+    auto render(std::string_view name, const json& cfg, const cr::Context& ctx) {
+        return cr::render_with_registry(registry, name, cfg, ctx);
+    }
+};
+
+/// Render an arbitrary Lua module source through wrap_embedded_module +
+/// the registry path. Replaces the pre-AH `render_with_source` helper
+/// (which spun a fresh per-call engine and is gone with the dual-codepath
+/// removal).
+std::expected<cr::RenderResult, std::string> render_inline_source(
+    std::string_view source, std::string_view chunk, const json& cfg,
+    const cr::Context& ctx) {
+    luban::lua::Engine engine;
+    rr::RendererRegistry reg;
+    auto fns = luban::lua_frontend::wrap_embedded_module(
+        engine.state(), source, chunk);
+    if (!fns) return std::unexpected(fns.error());
+    reg.register_native("__inline", std::move(*fns));
+    return cr::render_with_registry(reg, "__inline", cfg, ctx);
+}
+
 }  // namespace
 
 // ---- dispatch error paths ----------------------------------------------
 
-TEST_CASE("render(unknown tool) returns clear error") {
-    auto r = pr::render("luban-no-such-tool-xyz", json::object(), default_ctx());
+TEST_CASE("render_with_registry: unknown name returns clear error") {
+    rr::RendererRegistry reg;
+    auto r = cr::render_with_registry(reg, "luban-no-such-tool-xyz",
+                                       json::object(), default_ctx());
     CHECK_FALSE(r.has_value());
     CHECK(contains(r.error(), "no renderer"));
     CHECK(contains(r.error(), "luban-no-such-tool-xyz"));
 }
 
-TEST_CASE("render_with_source: module must return a table") {
-    auto r = pr::render_with_source("return 42", "=test",
-                                    json::object(), default_ctx());
-    CHECK_FALSE(r.has_value());
-    CHECK(contains(r.error(), "module must"));
+TEST_CASE("wrap_embedded_module: module must return a table") {
+    luban::lua::Engine engine;
+    auto fns = luban::lua_frontend::wrap_embedded_module(
+        engine.state(), "return 42", "=test");
+    CHECK_FALSE(fns.has_value());
+    CHECK(contains(fns.error(), "must `return"));
 }
 
-TEST_CASE("render_with_source: missing target_path field") {
-    auto r = pr::render_with_source(R"(
-        return { render = function(c, x) return "x" end }
-    )", "=test", json::object(), default_ctx());
-    CHECK_FALSE(r.has_value());
-    CHECK(contains(r.error(), "target_path"));
+TEST_CASE("wrap_embedded_module: missing target_path field") {
+    luban::lua::Engine engine;
+    auto fns = luban::lua_frontend::wrap_embedded_module(
+        engine.state(),
+        "return { render = function(c, x) return \"x\" end }",
+        "=test");
+    CHECK_FALSE(fns.has_value());
+    CHECK(contains(fns.error(), "target_path"));
 }
 
-TEST_CASE("render_with_source: render returns non-string") {
-    auto r = pr::render_with_source(R"(
+TEST_CASE("inline render: render returns non-string surfaces error") {
+    auto r = render_inline_source(R"(
         return {
             target_path = function(c, x) return "/tmp/x" end,
             render      = function(c, x) return 42 end,
@@ -75,8 +129,8 @@ TEST_CASE("render_with_source: render returns non-string") {
     CHECK(contains(r.error(), "string"));
 }
 
-TEST_CASE("render_with_source: minimal viable module works") {
-    auto r = pr::render_with_source(R"(
+TEST_CASE("inline render: minimal viable module works") {
+    auto r = render_inline_source(R"(
         return {
             target_path = function(cfg, ctx) return ctx.home .. "/x.conf" end,
             render = function(cfg, ctx) return "name=" .. (cfg.name or "") end,
@@ -90,13 +144,14 @@ TEST_CASE("render_with_source: minimal viable module works") {
 // ---- builtin: git ------------------------------------------------------
 
 TEST_CASE("builtin git renderer: standard fields") {
+    BuiltinKit kit;
     json cfg = {
         {"userName", "Coh1e"},
         {"userEmail", "x@example.com"},
         {"aliases", {{"co", "checkout"}, {"br", "branch"}}},
         {"core", {{"editor", "vim"}}},
     };
-    auto r = pr::render("git", cfg, default_ctx());
+    auto r = kit.render("git", cfg, default_ctx());
     REQUIRE(r.has_value());
     // Drop-in path under ~/.gitconfig.d/ keyed on blueprint name.
     CHECK(r->target_path.string().find(".gitconfig.d") != std::string::npos);
@@ -116,11 +171,12 @@ TEST_CASE("builtin git renderer: standard fields") {
 }
 
 TEST_CASE("builtin git renderer: extra section escape hatch") {
+    BuiltinKit kit;
     json cfg = {
         {"userName", "x"},
         {"extra", {{"safe.directory", "/repo/path"}}},
     };
-    auto r = pr::render("git", cfg, default_ctx());
+    auto r = kit.render("git", cfg, default_ctx());
     REQUIRE(r.has_value());
     CHECK(contains(r->content, "[safe]"));
     CHECK(contains(r->content, "directory = \"/repo/path\""));
@@ -129,12 +185,13 @@ TEST_CASE("builtin git renderer: extra section escape hatch") {
 // ---- builtin: bat ------------------------------------------------------
 
 TEST_CASE("builtin bat renderer: flag emission") {
+    BuiltinKit kit;
     json cfg = {
         {"theme", "ansi"},
         {"style", json::array({"numbers", "changes", "header"})},
         {"paging", "never"},
     };
-    auto r = pr::render("bat", cfg, default_ctx());
+    auto r = kit.render("bat", cfg, default_ctx());
     REQUIRE(r.has_value());
     CHECK(r->target_path.string() == "/home/test/.config/bat/config");
     CHECK(contains(r->content, "--theme=ansi"));
@@ -143,11 +200,12 @@ TEST_CASE("builtin bat renderer: flag emission") {
 }
 
 TEST_CASE("builtin bat renderer: snake_case → kebab-case flags") {
+    BuiltinKit kit;
     json cfg = {
         {"max_columns", 80},
         {"show_all", true},
     };
-    auto r = pr::render("bat", cfg, default_ctx());
+    auto r = kit.render("bat", cfg, default_ctx());
     REQUIRE(r.has_value());
     CHECK(contains(r->content, "--max-columns=80"));
     CHECK(contains(r->content, "--show-all"));
@@ -160,11 +218,12 @@ TEST_CASE("builtin bat renderer: snake_case → kebab-case flags") {
 // ---- builtin: fastfetch -------------------------------------------------
 
 TEST_CASE("builtin fastfetch renderer: produces valid JSON") {
+    BuiltinKit kit;
     json cfg = {
         {"modules", json::array({"title", "os", "shell"})},
         {"logo", {{"type", "auto"}}},
     };
-    auto r = pr::render("fastfetch", cfg, default_ctx());
+    auto r = kit.render("fastfetch", cfg, default_ctx());
     REQUIRE(r.has_value());
     CHECK(r->target_path.string() ==
           "/home/test/.config/fastfetch/config.jsonc");
@@ -182,11 +241,12 @@ TEST_CASE("builtin fastfetch renderer: produces valid JSON") {
 // ---- builtin: yazi ------------------------------------------------------
 
 TEST_CASE("builtin yazi renderer: nested [section]") {
+    BuiltinKit kit;
     json cfg = {
         {"manager", {{"ratio", json::array({1, 4, 3})}, {"sort_by", "alphabetical"}}},
         {"opener", {{"edit", json::array({"vim", "$@"})}}},
     };
-    auto r = pr::render("yazi", cfg, default_ctx());
+    auto r = kit.render("yazi", cfg, default_ctx());
     REQUIRE(r.has_value());
     CHECK(r->target_path.string() == "/home/test/.config/yazi/yazi.toml");
     CHECK(contains(r->content, "[manager]"));
@@ -198,12 +258,13 @@ TEST_CASE("builtin yazi renderer: nested [section]") {
 // ---- builtin: delta -----------------------------------------------------
 
 TEST_CASE("builtin delta renderer: wires pager + delta config") {
+    BuiltinKit kit;
     json cfg = {
         {"navigate", true},
         {"line-numbers", true},
         {"syntax-theme", "Monokai Extended"},
     };
-    auto r = pr::render("delta", cfg, default_ctx());
+    auto r = kit.render("delta", cfg, default_ctx());
     REQUIRE(r.has_value());
     // Drop-in path with -delta suffix on blueprint name.
     CHECK(contains(r->target_path.string(), "test-bp-delta.gitconfig"));

@@ -227,10 +227,14 @@ TEST_CASE("register_renderer: no-op when no registry attached") {
     CHECK(rc.has_value());
 }
 
-TEST_CASE("render_with_registry: unknown name falls through to embedded path") {
-    Engine e;
+TEST_CASE("render_with_registry: unknown name returns clear error") {
+    // Phase 6 (DESIGN §24.1 AI) collapsed dispatch to the registry alone.
+    // An empty registry no longer falls through to a per-call embedded
+    // path — there's only one path. commands/blueprint.cpp pre-loads the
+    // 5 builtins into every apply registry; tests that want builtin
+    // dispatch should mirror that (see test_config_renderer.cpp's
+    // BuiltinKit fixture).
     rr::RendererRegistry reg;
-    e.attach_registry(&reg);
 
     cr::Context ctx;
     ctx.home = "/h";
@@ -239,10 +243,9 @@ TEST_CASE("render_with_registry: unknown name falls through to embedded path") {
     ctx.platform = "windows";
     nlohmann::json cfg = nlohmann::json::object();
 
-    // "git" is a builtin renderer; registry is empty so we fall through.
     auto rendered = cr::render_with_registry(reg, "git", cfg, ctx);
-    REQUIRE(rendered.has_value());
-    CHECK(rendered->target_path.string().find(".gitconfig.d") != std::string::npos);
+    CHECK_FALSE(rendered.has_value());
+    CHECK(rendered.error().find("no renderer for `git`") != std::string::npos);
 }
 
 // ---- End-to-end: register_resolver ---------------------------------------

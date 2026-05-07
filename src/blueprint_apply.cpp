@@ -497,21 +497,20 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
         // back to cfg.name (the conventional same-name binding) when unset.
         const std::string& renderer_name = cfg.for_tool.value_or(cfg.name);
         log::stepf("[{}/{}] config: {}", cfg_idx, total_cfgs, cfg.name);
-        // Lua bps may have called register_renderer during parse; if a
-        // registry is present we dispatch through it, which both serves
-        // bp-registered RendererFns and falls through to the builtin
-        // embedded path for unregistered names. TOML-bp callers that
-        // pass no registry stay on the plain render() path during the
-        // AH transition; phase 4 unifies both routes through the
-        // registry. The Lua engine field on opts is no longer consulted
-        // by core dispatch (DESIGN §24.1 AH) — phase 4 deletes it.
-        std::expected<luban::config_renderer::RenderResult, std::string> rendered;
-        if (opts.renderer_registry) {
-            rendered = luban::config_renderer::render_with_registry(
-                *opts.renderer_registry, renderer_name, cfg.config, ctx);
-        } else {
-            rendered = luban::config_renderer::render(renderer_name, cfg.config, ctx);
+        // Single dispatch path (DESIGN §24.1 AI / §9.9 line 656). The
+        // registry holds the 5 pre-loaded builtins, any bp-registered
+        // renderers, and any user override at <config>/luban/configs/.
+        // commands/blueprint.cpp always passes a non-null registry; legacy
+        // programmatic callers that pass nullptr will get a clear error
+        // for any [config.X] block since there's no fallback render path
+        // anymore.
+        if (!opts.renderer_registry) {
+            return std::unexpected("render " + cfg.name +
+                                   ": no renderer registry — caller must"
+                                   " supply one (DESIGN §24.1 AI)");
         }
+        auto rendered = luban::config_renderer::render_with_registry(
+            *opts.renderer_registry, renderer_name, cfg.config, ctx);
         if (!rendered) {
             return std::unexpected("render " + cfg.name + ": " + rendered.error());
         }
