@@ -33,7 +33,6 @@
 #include "blueprint.hpp"
 #include "blueprint_lock.hpp"
 
-namespace luban::lua { class Engine; }
 namespace luban::renderer_registry { class RendererRegistry; }
 
 namespace luban::blueprint_apply {
@@ -55,16 +54,16 @@ struct ApplyOptions {
     /// `bp:`-style scripts.
     std::optional<std::filesystem::path> bp_source_root;
 
-    /// Engine + registry pair for bp-registered renderer dispatch (Tier 1,
-    /// DESIGN §9.9). Both must be non-null together — registry entries hold
-    /// luaL_refs into engine's LUA_REGISTRYINDEX. Caller (commands/blueprint.cpp
-    /// for Lua bps) parses the bp via `blueprint_lua::parse_file_in_engine`
-    /// so register_renderer side effects land in the same engine that apply
-    /// later invokes during config rendering.
+    /// Renderer registry for `[config.X]` block dispatch (DESIGN §9.9 +
+    /// §24.1 AH/AI). When set, apply funnels every render through
+    /// `config_renderer::render_with_registry`, which serves
+    /// bp-registered RendererFns first then falls through to the
+    /// builtin embedded path.
     ///
-    /// Both nullptr → TOML-bp path: config_renderer falls back to its
-    /// builtin-embedded dispatch (existing behavior).
-    luban::lua::Engine* lua_engine = nullptr;
+    /// nullptr (legacy programmatic callers) → apply uses the plain
+    /// `render()` path, equivalent to a registry with no native entries.
+    /// commands/blueprint.cpp always passes a non-null registry as of
+    /// the AI single-path commit.
     luban::renderer_registry::RendererRegistry* renderer_registry = nullptr;
 };
 

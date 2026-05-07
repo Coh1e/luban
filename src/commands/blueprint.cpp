@@ -288,51 +288,45 @@ int run_apply(const cli::ParsedArgs& args) {
 
     bool force_update = args.flags.count("update") && args.flags.at("update");
 
-    // Tier 1 (DESIGN §9.9): for Lua bps, parse a SECOND time inside a
-    // long-lived engine + two registries (renderer + resolver). Any
-    // `luban.register_renderer` / `luban.register_resolver` calls deposit
-    // refs we can re-invoke during the lock-resolve and render phases.
-    // The first parse (resolve_blueprint above) already gave us the spec
-    // for the apply pipeline; this second parse runs the same source for
-    // its side effects (register_*).
+    // DESIGN §24.1 AI: every apply (TOML or Lua) constructs a Lua engine
+    // and the renderer + resolver registries. TOML bps don't run any
+    // register_* side effects — the engine just sits there — but the
+    // apply pipeline downstream still funnels through the same registry
+    // dispatch path, so `[config.git]` on a pure-TOML bp resolves the
+    // same way it would on a Lua bp. Single dispatch path; no double-
+    // implementation drift.
     //
-    // Order matters: construct registries BEFORE lock resolve so a bp's
-    // register_resolver can affect the lock. Engine + registries live
-    // for the duration of run_apply.
-    //
-    // Cost: Lua parse is sub-ms — acceptable for the API symmetry win.
-    // For TOML bps we skip this path entirely; lock resolve falls back
-    // to plain resolve() (no registry); config_renderer uses its
-    // builtin-embedded dispatch (no registry needed).
-    std::optional<luban::lua::Engine> apply_engine;
-    std::optional<luban::renderer_registry::RendererRegistry> apply_registry;
-    std::optional<luban::resolver_registry::ResolverRegistry> apply_resolver_registry;
+    // Cost: one luaL_newstate per apply (sub-ms) for TOML bps that
+    // wouldn't have needed an engine pre-AI. Worth it for the
+    // architectural simplification and the §9.9 "无双码路径" promise.
+    luban::lua::Engine apply_engine;
+    luban::renderer_registry::RendererRegistry apply_registry;
+    luban::resolver_registry::ResolverRegistry apply_resolver_registry;
+    apply_engine.attach_registry(&apply_registry);
+    apply_engine.attach_resolver_registry(&apply_resolver_registry);
+
     if (resolved->source_path.extension() == ".lua") {
-        apply_engine.emplace();
-        apply_registry.emplace();
-        apply_resolver_registry.emplace();
-        apply_engine->attach_registry(&*apply_registry);
-        apply_engine->attach_resolver_registry(&*apply_resolver_registry);
+        // Re-parse the Lua source inside this long-lived engine so
+        // `luban.register_renderer` / `register_resolver` calls deposit
+        // refs the registries can re-invoke. The first parse (in
+        // resolve_blueprint above) gave us the spec; this one is purely
+        // for register_* side effects. Spec from the second parse is
+        // discarded — deterministic Lua parse so it's identical anyway.
         auto reparsed = luban::blueprint_lua::parse_file_in_engine(
-            *apply_engine, resolved->source_path);
+            apply_engine, resolved->source_path);
         if (!reparsed) {
             std::cerr << "re-parse for renderer/resolver engine: "
                       << reparsed.error() << "\n";
             return 1;
         }
-        // reparsed.spec discarded — register_* side effects into the
-        // registries are what we wanted. Spec is identical to
-        // resolved->spec (deterministic Lua parse, same source).
     }
 
     // Embedded blueprints don't have a sibling .lock file (no path to
     // anchor it on); fall through to fresh resolution inside resolve_lock
     // by passing an empty path. --update forces fresh resolve even when
     // an on-disk lock exists.
-    const luban::resolver_registry::ResolverRegistry* sreg_for_lock =
-        apply_resolver_registry ? &*apply_resolver_registry : nullptr;
     auto lock = resolve_lock(resolved->source_path, resolved->spec,
-                              force_update, sreg_for_lock);
+                              force_update, &apply_resolver_registry);
     if (!lock) {
         std::cerr << "lock resolution: " << lock.error() << "\n";
         return 1;
@@ -366,12 +360,11 @@ int run_apply(const cli::ParsedArgs& args) {
         if (!bp_root.empty()) opts.bp_source_root = bp_root;
     }
 
-    // (apply_engine + apply_registry constructed above for resolver-side
-    // registration; reuse the same pair for renderer dispatch in apply.)
-    if (apply_engine) {
-        opts.lua_engine = &*apply_engine;
-        opts.renderer_registry = &*apply_registry;
-    }
+    // Always wire the renderer registry — apply runs single-path
+    // (DESIGN §24.1 AI). For TOML bps the registry is empty but apply
+    // dispatch still funnels through it so the fall-through to the
+    // builtin path is the same code as Lua bps' shadow-or-fallthrough.
+    opts.renderer_registry = &apply_registry;
 
     auto result = luban::blueprint_apply::apply(resolved->spec, *lock, opts);
     if (!result) {
