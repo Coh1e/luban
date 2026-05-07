@@ -30,7 +30,6 @@
 
 #include "json.hpp"
 
-namespace luban::lua { class Engine; }
 namespace luban::renderer_registry { class RendererRegistry; }
 
 namespace luban::config_renderer {
@@ -70,14 +69,17 @@ struct RenderResult {
 
 /// Render via a bp-registered renderer if `registry` knows `tool_name`,
 /// otherwise fall back to `render(tool_name, cfg, ctx)` (builtin embedded
-/// path / user override). The bp-registered case calls into the same
-/// `engine` the bp's `return { ... }` evaluated in, since the renderer
-/// fn refs were taken there.
+/// path / user override).
+///
+/// Post-AH: this function is pure callback dispatch — it consults
+/// `registry.find_native()` and invokes the `RendererFns` directly. No
+/// lua_State* anywhere; whether the entry was created from Lua refs or a
+/// pure C++ lambda is invisible at this layer (DESIGN §24.1 AH).
 ///
 /// Used by blueprint_apply for Lua-form bps. TOML-form bps go through
-/// the plain `render()` overload instead — they have no registry.
+/// the plain `render()` overload instead during the transition phase —
+/// phase 4 unifies both paths through this entry point.
 [[nodiscard]] std::expected<RenderResult, std::string> render_with_registry(
-    luban::lua::Engine& engine,
     const luban::renderer_registry::RendererRegistry& registry,
     std::string_view tool_name, const nlohmann::json& cfg,
     const Context& ctx);

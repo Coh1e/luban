@@ -26,6 +26,7 @@ extern "C" {
 }
 
 #include "luban/version.hpp"
+#include "lua_frontend.hpp"
 #include "paths.hpp"
 #include "renderer_registry.hpp"
 #include "resolver_registry.hpp"
@@ -231,7 +232,11 @@ int api_register_renderer(lua_State* L) {
         luaL_unref(L, LUA_REGISTRYINDEX, r_ref);
         return 0;
     }
-    reg->register_lua(name, L, tp_ref, r_ref);
+    // AH boundary: hand the refs to lua_frontend, which wraps them as
+    // shared_ptr<LuaRef> captures in std::function. The registry sees only
+    // RendererFns from here on.
+    reg->register_native(name,
+        ::luban::lua_frontend::wrap_renderer_module(L, tp_ref, r_ref));
     return 0;
 }
 
@@ -259,7 +264,8 @@ int api_register_resolver(lua_State* L) {
         luaL_unref(L, LUA_REGISTRYINDEX, fn_ref);
         return 0;
     }
-    reg->register_lua(scheme, L, fn_ref);
+    reg->register_native(scheme,
+        ::luban::lua_frontend::wrap_resolver_fn(L, fn_ref));
     return 0;
 }
 

@@ -24,6 +24,11 @@
 #include <unordered_map>
 
 extern "C" {
+// render_with_source still spins a fresh per-call engine and calls the
+// lua C API directly. Phase 6 of the AH/AI rollout migrates the 5
+// builtins into the registry (via lua_frontend::wrap_embedded_module)
+// and deletes render_with_source entirely; at that point this include
+// goes too and invariant 9 holds for this TU.
 #include "lauxlib.h"
 #include "lua.h"
 }
@@ -225,61 +230,25 @@ std::expected<RenderResult, std::string> render(std::string_view tool_name,
     return render_with_source(src->code, src->chunkname, cfg, ctx);
 }
 
-// ---- bp-registered renderer dispatch (Tier 1, DESIGN §9.9) -------------
-
-namespace {
-
-// Call a function whose lua_ref lives in `L`'s LUA_REGISTRYINDEX with
-// (cfg, ctx) and harvest the string return value. fn_name only used for
-// error message context.
-std::expected<std::string, std::string> call_registered(
-    lua_State* L, int fn_ref, const char* fn_name,
-    const nlohmann::json& cfg, const Context& ctx) {
-    lua_rawgeti(L, LUA_REGISTRYINDEX, fn_ref);
-    if (!lua_isfunction(L, -1)) {
-        std::string actual = lua_typename(L, lua_type(L, -1));
-        lua_pop(L, 1);
-        return std::unexpected(std::string("registered ") + fn_name +
-                               " ref points to " + actual + ", expected function");
-    }
-    luban::lua_json::push(L, cfg);
-    push_ctx(L, ctx);
-    if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
-        std::string err = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return std::unexpected(std::string("error calling registered ") +
-                               fn_name + ": " + err);
-    }
-    return pop_string_or_error(L, fn_name);
-}
-
-}  // namespace
+// ---- bp-registered renderer dispatch (Tier 1, DESIGN §9.9 / §24.1 AH) --
+//
+// Post-AH: pure callback dispatch. `RendererFns` may be backed by Lua
+// refs (via `lua_frontend::wrap_renderer_module`), a pure C++ lambda,
+// or any future native plugin. core dispatch doesn't care.
 
 std::expected<RenderResult, std::string> render_with_registry(
-    luban::lua::Engine& engine,
     const luban::renderer_registry::RendererRegistry& registry,
     std::string_view tool_name, const nlohmann::json& cfg,
     const Context& ctx) {
-    if (auto entry = registry.find(tool_name); entry) {
-        if (entry->L != engine.state()) {
-            // Cross-engine ref — would crash if we tried to invoke.
-            // This shouldn't happen with the documented ownership model
-            // but guard explicitly because the failure mode otherwise
-            // is a process abort.
-            return std::unexpected(
-                "renderer `" + std::string(tool_name) +
-                "` was registered against a different Engine instance");
-        }
-        lua_State* L = entry->L;
-        auto tp = call_registered(L, entry->target_path_ref,
-                                   "target_path", cfg, ctx);
+    if (auto* fns = registry.find_native(tool_name); fns) {
+        auto tp = fns->target_path(cfg, ctx);
         if (!tp) return std::unexpected(tp.error());
-        auto content = call_registered(L, entry->render_ref,
-                                        "render", cfg, ctx);
+        auto content = fns->render(cfg, ctx);
         if (!content) return std::unexpected(content.error());
         return RenderResult{fs::path(*tp), *content};
     }
-    // Fall through to the builtin / user-override path.
+    // Fall through to the builtin / user-override path. Phase 6 will
+    // pre-load builtins into the registry and delete this fallback.
     return render(tool_name, cfg, ctx);
 }
 

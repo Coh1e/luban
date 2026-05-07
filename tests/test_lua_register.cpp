@@ -131,7 +131,7 @@ TEST_CASE("register_renderer: bp registers + render_with_registry invokes") {
     ctx.platform = "windows";
     nlohmann::json cfg = {{"add_newline", false}, {"command_timeout", 500}};
 
-    auto rendered = cr::render_with_registry(e, reg, "starship", cfg, ctx);
+    auto rendered = cr::render_with_registry(reg, "starship", cfg, ctx);
     REQUIRE(rendered.has_value());
     CHECK(rendered->target_path == std::filesystem::path("/home/test/.config/starship.toml"));
     CHECK(rendered->content.find("add_newline = false") != std::string::npos);
@@ -183,7 +183,7 @@ TEST_CASE("render_with_registry: unknown name falls through to embedded path") {
     nlohmann::json cfg = nlohmann::json::object();
 
     // "git" is a builtin renderer; registry is empty so we fall through.
-    auto rendered = cr::render_with_registry(e, reg, "git", cfg, ctx);
+    auto rendered = cr::render_with_registry(reg, "git", cfg, ctx);
     REQUIRE(rendered.has_value());
     CHECK(rendered->target_path.string().find(".gitconfig.d") != std::string::npos);
 }

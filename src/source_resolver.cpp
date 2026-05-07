@@ -16,11 +16,6 @@
 
 #include <string_view>
 
-extern "C" {
-#include "lauxlib.h"
-#include "lua.h"
-}
-
 #include "platform.hpp"
 #include "resolver_registry.hpp"
 #include "store.hpp"
@@ -89,83 +84,20 @@ std::expected<bpl::LockedTool, std::string> resolve(const bp::ToolSpec& spec) {
 
 namespace {
 
-// Walk a Lua table at the top of the stack, populating a LockedPlatform.
-// Expected fields (string keys): url, sha256, bin. Missing fields fall
-// through to default behaviour at the call site.
-std::expected<bpl::LockedPlatform, std::string> walk_resolver_result(
-    lua_State* L, std::string_view tool_name) {
-    if (!lua_istable(L, -1)) {
-        std::string actual = lua_typename(L, lua_type(L, -1));
-        return std::unexpected("registered resolver for `" +
-                               std::string(tool_name) +
-                               "` returned " + actual + ", expected table");
-    }
-    bpl::LockedPlatform lp;
-    lua_getfield(L, -1, "url");
-    if (lua_isstring(L, -1)) lp.url = lua_tostring(L, -1);
-    lua_pop(L, 1);
-    lua_getfield(L, -1, "sha256");
-    if (lua_isstring(L, -1)) lp.sha256 = lua_tostring(L, -1);
-    lua_pop(L, 1);
-    lua_getfield(L, -1, "bin");
-    if (lua_isstring(L, -1)) lp.bin = lua_tostring(L, -1);
-    lua_pop(L, 1);
-    if (lp.url.empty()) {
-        return std::unexpected("registered resolver for `" +
-                               std::string(tool_name) +
-                               "` returned table without required `url` field");
-    }
-    return lp;
-}
-
-// Invoke a bp-registered Lua resolver: push fn from registry ref, push
-// a Lua-side `spec` table {name, source, version}, pcall, walk result.
-std::expected<bpl::LockedTool, std::string> invoke_lua_resolver(
-    const ::luban::resolver_registry::Entry& entry,
-    const bp::ToolSpec& spec) {
-    lua_State* L = entry.L;
-    lua_rawgeti(L, LUA_REGISTRYINDEX, entry.fn_ref);
-    if (!lua_isfunction(L, -1)) {
-        std::string actual = lua_typename(L, lua_type(L, -1));
-        lua_pop(L, 1);
-        return std::unexpected(
-            "registered resolver ref for `" + spec.name + "` is " + actual +
-            ", expected function (engine recycled?)");
-    }
-    // Build spec table.
-    lua_newtable(L);
-    lua_pushstring(L, spec.name.c_str());
-    lua_setfield(L, -2, "name");
-    if (spec.source) {
-        lua_pushstring(L, spec.source->c_str());
-        lua_setfield(L, -2, "source");
-    }
-    if (spec.version) {
-        lua_pushstring(L, spec.version->c_str());
-        lua_setfield(L, -2, "version");
-    }
-    if (spec.bin) {
-        lua_pushstring(L, spec.bin->c_str());
-        lua_setfield(L, -2, "bin");
-    }
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        std::string err = lua_tostring(L, -1);
-        lua_pop(L, 1);
-        return std::unexpected("registered resolver for `" + spec.name +
-                               "` raised: " + err);
-    }
-    auto plat = walk_resolver_result(L, spec.name);
-    lua_pop(L, 1);  // pop result table
-    if (!plat) return std::unexpected(plat.error());
-
+// Wrap a registered ResolverFn's LockedPlatform into a full LockedTool
+// (version + source + target triplet + artifact_id), defaulting bin and
+// artifact_id when the callback didn't pre-populate them. Identical to
+// the post-resolve fix-up the legacy invoke_lua_resolver did before AH.
+std::expected<bpl::LockedTool, std::string> finalize_native_resolved(
+    bpl::LockedPlatform plat, const bp::ToolSpec& spec) {
     bpl::LockedTool out;
     out.version = spec.version.value_or("");
     out.source = spec.source.value_or("");
     std::string target = std::string(luban::platform::host_triplet());
-    plat->bin = plat->bin.empty() ? spec.bin.value_or(spec.name + ".exe") : plat->bin;
-    plat->artifact_id = luban::store::compute_artifact_id(
-        spec.name, out.version, target, plat->sha256);
-    out.platforms.emplace(target, std::move(*plat));
+    plat.bin = plat.bin.empty() ? spec.bin.value_or(spec.name + ".exe") : plat.bin;
+    plat.artifact_id = luban::store::compute_artifact_id(
+        spec.name, out.version, target, plat.sha256);
+    out.platforms.emplace(target, std::move(plat));
     return out;
 }
 
@@ -189,10 +121,13 @@ std::expected<bpl::LockedTool, std::string> resolve_with_registry(
 
     // Mode 2a: bp-registered scheme via registry — checked FIRST so a bp
     // can shadow a built-in scheme if it really wants to (DESIGN §9.9
-    // "同一注册表" — same registry, last-wins).
+    // "同一注册表" — same registry, last-wins). AH boundary: pure callback
+    // dispatch via find_native; this TU never sees lua_State*.
     if (registry) {
-        if (auto entry = registry->find(scheme)) {
-            return invoke_lua_resolver(*entry, spec);
+        if (auto* fn = registry->find_native(scheme)) {
+            auto plat = (*fn)(spec);
+            if (!plat) return std::unexpected(plat.error());
+            return finalize_native_resolved(std::move(*plat), spec);
         }
     }
 
