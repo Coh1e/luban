@@ -1,5 +1,4 @@
--- programs/git.lua — render [programs.git] config blocks to git's INI
--- format.
+-- configs/git.lua — render [config.git] blocks to git's INI format.
 --
 -- Per docs/DESIGN.md §11.3, git is a "drop-in" tool: we never touch the
 -- user's ~/.gitconfig directly. Instead we write to ~/.gitconfig.d/<bp>.gitconfig
@@ -8,18 +7,18 @@
 --
 -- Schema accepted (matches home-manager's programs.git pretty closely):
 --
---   [programs.git]
+--   [config.git]
 --   userName  = "Coh1e"
 --   userEmail = "x@example.com"
 --
---   [programs.git.aliases]
+--   [config.git.aliases]
 --   co = "checkout"
 --   br = "branch"
 --
---   [programs.git.core]
+--   [config.git.core]
 --   editor = "vim"
 --
---   [programs.git.credential]
+--   [config.git.credential]
 --   helper = "manager"        -- emits [credential] helper = manager
 --
 --   lfs = true                -- emits [filter "lfs"] with the canonical
@@ -28,7 +27,7 @@
 --                             -- Requires git-lfs.exe on PATH (see cpp-base
 --                             -- blueprint).
 --
---   [programs.git.extra]
+--   [config.git.extra]
 --   "section.key" = "value"   -- escape hatch for arbitrary [section] key=value
 --
 -- Anything we don't recognize at the top level is silently ignored — we

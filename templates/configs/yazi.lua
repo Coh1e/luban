@@ -1,4 +1,4 @@
--- programs/yazi.lua — render [programs.yazi] to yazi's TOML config file.
+-- configs/yazi.lua — render [config.yazi] to yazi's TOML config file.
 --
 -- yazi reads ~/.config/yazi/yazi.toml (and a few sibling files) directly
 -- as TOML. Since the blueprint already supplies structured config, we

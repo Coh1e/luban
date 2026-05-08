@@ -3,8 +3,8 @@
 # Used by luban for two embed cases:
 #  - templates/help/<verb>.md → luban::embedded_help::<verb>_help (long
 #    --help output for setup / new / specs verbs)
-#  - templates/programs/<X>.lua → luban::embedded_programs::<X>_lua
-#    (per-tool renderer modules for [programs.X] config blocks)
+#  - templates/configs/<X>.lua → luban::embedded_configs::<X>_lua
+#    (per-tool renderer modules for [config.X] blocks)
 #
 # Build-time embed via `R"<sentinel>(...)"` keeps the source file and
 # the binary's view in lockstep — bump the file, rebuild, the binary

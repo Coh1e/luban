@@ -168,7 +168,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
   PATH 上能调用的一个二进制（cmake / ninja / git / ssh / ...），由 luban 装在
   `~/.local/share/luban/store/<artifact-id>/` 并 shim 到 `~/.local/bin/`。
 - **config（配置 / 设定）**——让 tool 按你的方式跑的 dotfile。一条 `config` 声明
-  喂给一个 renderer（`templates/programs/X.lua`），渲出 `(target_path, content)`，
+  喂给一个 renderer（`templates/configs/X.lua`），渲出 `(target_path, content)`，
   drop-in 落到 XDG 路径（如 `~/.gitconfig.d/<bp>.gitconfig`）。
 
 **关系**：
@@ -186,11 +186,10 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 collection 字段保持复数（`std::vector<ToolSpec> tools`）；JSON 序列化（lock /
 generation）保持复数 key（`"tools": {...}`）——各语言遵各自惯例。
 
-**实施状态（2026-05-06）**：概念命名已对齐；TOML schema 键 + 渲染子系统命名
-（`program_renderer` → `config_renderer`、`templates/programs/` → `templates/configs/`）
-的代码侧 rename 是单独 PR。本节示例代码用目标命名（`[tool.X]` / `[config.X]`），
-当前 .toml 文件实际写的还是历史的 `[tools.X]` / `[programs.X]` 复数键——见
-§24.1 决议 **P**。
+**实施状态（v0.2.0, 2026-05-06）**：概念命名 + 代码侧 rename 都已落地——
+`[tool.X]` / `[config.X]` / `[file."path"]` 在 TOML/Lua 解析层是唯一接受的形态，
+旧复数 key 是硬错误。`program_renderer` → `config_renderer` /
+`templates/programs/` → `templates/configs/` 同 PR 切。详见 §24.1 决议 **P**。
 
 ### 9.1 Lua 形态（first-class，DSL 风格）
 

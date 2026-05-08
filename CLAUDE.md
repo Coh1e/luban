@@ -44,7 +44,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
   PATH 上能调用的二进制（cmake / ninja / git / ssh / ...），由 luban 装在
   `~/.local/share/luban/store/` 并 shim 到 `~/.local/bin/`。
 - **config（配置 / 设定）**：让 tool 按你的方式跑的 dotfile。一条 `config`
-  声明喂给一个 renderer（`templates/programs/X.lua`），渲出
+  声明喂给一个 renderer（`templates/configs/X.lua`），渲出
   `(target_path, content)`，drop-in 落到 XDG 路径。
 
 关系：
@@ -136,9 +136,8 @@ src/                           # luban C++23 source
                                # NOTE: templates/blueprints/ 已移除（议题 AG）。
                                # 基础 3 件 + onboarding 现在住外部 bp source repo
                                # https://github.com/Coh1e/luban-bps；luban.exe 零内嵌。
-templates/programs/            # 内置 5 个 config renderer（Lua）；目录名沿用
+templates/configs/             # 内置 5 个 config renderer (Lua)
   git.lua / bat.lua / fastfetch.lua / yazi.lua / delta.lua
-                               # 计划随 schema 重命名一并改成 templates/configs/
 templates/{app,lib,wasm-app}/  # luban new <kind> 脚手架
                                # `{{name}}` 在内容 + 目录名都展开
 

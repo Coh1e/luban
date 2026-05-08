@@ -1,15 +1,15 @@
--- programs/delta.lua — render [programs.delta] to a git-config drop-in
--- that wires delta in as git's pager and adds a [delta] section.
+-- configs/delta.lua — render [config.delta] to a git-config drop-in that
+-- wires delta in as git's pager and adds a [delta] section.
 --
 -- delta itself reads its options from ~/.gitconfig under the [delta]
 -- section. So the renderer's output is in fact git INI format, and the
--- target path is a separate drop-in alongside programs.git's so users
+-- target path is a separate drop-in alongside config.git's so users
 -- can opt into either independently:
 --
 --     ~/.gitconfig.d/<bp>-delta.gitconfig
 --
 -- Schema:
---   [programs.delta]
+--   [config.delta]
 --   features    = "decorations side-by-side"
 --   navigate    = true
 --   line_numbers = true

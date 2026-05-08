@@ -1,5 +1,5 @@
--- programs/fastfetch.lua — render [programs.fastfetch] to fastfetch's
--- JSONC config file at ~/.config/fastfetch/config.jsonc.
+-- configs/fastfetch.lua — render [config.fastfetch] to fastfetch's JSONC
+-- config file at ~/.config/fastfetch/config.jsonc.
 --
 -- fastfetch's own format is JSONC (JSON with comments), but consuming
 -- side accepts plain JSON, so we just emit JSON. The structure mirrors

@@ -1,4 +1,4 @@
--- programs/bat.lua — render [programs.bat] to bat's CLI-flag config file.
+-- configs/bat.lua — render [config.bat] to bat's CLI-flag config file.
 --
 -- bat reads ~/.config/bat/config (Linux/macOS) or %APPDATA%/bat/config
 -- (Windows) — a plain-text file where each line is a CLI flag, e.g.:
