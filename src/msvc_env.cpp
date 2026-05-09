@@ -8,10 +8,8 @@
 #include <sstream>
 #include <system_error>
 
-#ifdef _WIN32
 #include <windows.h>
 #include "util/win.hpp"
-#endif
 
 #include "file_util.hpp"
 #include "log.hpp"
@@ -42,7 +40,6 @@ const std::set<std::string, std::less<>>& transient_vars() {
 // quoting `command` (which is appended after `/c ` literally, so embedded
 // quotes need to be balanced). On failure returns empty string.
 std::string run_capture_cmd(const std::string& command) {
-#ifdef _WIN32
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -85,10 +82,6 @@ std::string run_capture_cmd(const std::string& command) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return out;
-#else
-    (void)command;
-    return {};  // POSIX has no MSVC; caller already guards via Win32 ifdef
-#endif
 }
 
 // Parse the output of `set` (one VAR=VALUE per line) into a map. Skips
@@ -139,11 +132,7 @@ std::string iso_now() {
     using namespace std::chrono;
     auto t = system_clock::to_time_t(system_clock::now());
     std::tm gm{};
-#ifdef _WIN32
     gmtime_s(&gm, &t);
-#else
-    gmtime_r(&t, &gm);
-#endif
     std::ostringstream ss;
     ss << std::put_time(&gm, "%Y-%m-%dT%H:%M:%SZ");
     return ss.str();
@@ -154,7 +143,6 @@ std::string iso_now() {
 fs::path file_path() { return paths::state_dir() / "msvc-env.json"; }
 
 fs::path find_vswhere() {
-#ifdef _WIN32
     // Microsoft-documented well-known path. vswhere ships with every VS
     // install (>=2017) at this exact location.
     auto pf86 = paths::from_env("ProgramFiles(x86)");
@@ -162,9 +150,6 @@ fs::path find_vswhere() {
     fs::path p = *pf86 / "Microsoft Visual Studio" / "Installer" / "vswhere.exe";
     std::error_code ec;
     return fs::exists(p, ec) ? p : fs::path{};
-#else
-    return {};
-#endif
 }
 
 fs::path find_install() {

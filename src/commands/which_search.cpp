@@ -3,9 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 #include "../cli.hpp"
 #include "../env_snapshot.hpp"
@@ -32,7 +30,6 @@ int run_run(const cli::ParsedArgs& a) {
     // PATH search augmented with luban's toolchain dirs. Splice luban's
     // toolchain dirs in front of the current PATH, search, then restore.
     fs::path exe;
-#ifdef _WIN32
     std::string current_path;
     if (const char* p = std::getenv("PATH"); p) current_path = p;
     std::string augmented;
@@ -46,9 +43,6 @@ int run_run(const cli::ParsedArgs& a) {
     if (auto hit = path_search::on_path(cmd_name)) exe = *hit;
 
     SetEnvironmentVariableA("PATH", current_path.c_str());
-#else
-    if (auto hit = path_search::on_path(cmd_name)) exe = *hit;
-#endif
 
     if (exe.empty() || !fs::exists(exe)) {
         log::errf("'{}' not found in PATH (with luban toolchain dirs prepended)", cmd_name);

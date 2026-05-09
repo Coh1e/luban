@@ -12,11 +12,7 @@ namespace luban::env_snapshot {
 
 namespace {
 
-#ifdef _WIN32
 constexpr char kPathSep = ';';
-#else
-constexpr char kPathSep = ':';
-#endif
 
 std::string lower(const std::string& s) {
     std::string out(s);
@@ -33,11 +29,7 @@ std::vector<fs::path> path_dirs() {
     auto add = [&](const fs::path& p) {
         std::error_code ec;
         if (!fs::exists(p, ec)) return;
-#ifdef _WIN32
         std::string key = lower(p.string());
-#else
-        std::string key = p.string();
-#endif
         if (!seen.insert(key).second) return;
         ordered.push_back(p);
     };

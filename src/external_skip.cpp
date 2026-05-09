@@ -44,10 +44,8 @@ bool is_under_luban_bin(const fs::path& resolved) {
         // on Windows (case-insensitive fs).
         auto a = resolved_canon.string();
         auto b = root_canon.string();
-#ifdef _WIN32
         for (auto& c : a) c = static_cast<char>(::tolower(c));
         for (auto& c : b) c = static_cast<char>(::tolower(c));
-#endif
         return a.starts_with(b);
     };
 

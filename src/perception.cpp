@@ -8,16 +8,10 @@
 #include <string>
 #include <string_view>
 
-#ifdef _WIN32
 #include <windows.h>
 #include <intrin.h>
 #include <sysinfoapi.h>
 #include "util/win.hpp"
-#else
-#include <fstream>
-#include <sys/utsname.h>
-#include <unistd.h>
-#endif
 
 #include "path_search.hpp"
 #include "paths.hpp"
@@ -29,7 +23,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-#ifdef _WIN32
 // __cpuid wrapper. Returns array {EAX, EBX, ECX, EDX} for the given leaf.
 // MSVC and Clang both expose this intrinsic; arg shape is identical.
 struct Cpuid { int regs[4]; };
@@ -123,7 +116,6 @@ std::string arch_string() {
         default: return "unknown";
     }
 }
-#endif
 
 // PATH lookup for tool-presence probing — delegates to path_search so
 // doctor and perception share the same resolution rules.
@@ -141,7 +133,6 @@ std::string getenv_str(const char* name) {
 Host snapshot() {
     Host h;
 
-#ifdef _WIN32
     h.os_name = "Windows";
     h.os_version = windows_version();
     h.arch = arch_string();
@@ -174,23 +165,6 @@ Host snapshot() {
         h.ram_total = static_cast<int64_t>(mem.ullTotalPhys);
         h.ram_available = static_cast<int64_t>(mem.ullAvailPhys);
     }
-#else
-    // POSIX path — placeholder. Linux/macOS support is M4+; we still want
-    // perception to not crash there, just return mostly-empty.
-    struct utsname u{};
-    if (uname(&u) == 0) {
-        h.os_name = u.sysname;
-        h.os_version = u.release;
-        h.arch = u.machine;
-    }
-    h.cpu_threads = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
-    h.cpu_cores = h.cpu_threads;
-    long pages = sysconf(_SC_PHYS_PAGES);
-    long page_size = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && page_size > 0) {
-        h.ram_total = static_cast<int64_t>(pages) * static_cast<int64_t>(page_size);
-    }
-#endif
 
     // Tools on PATH — core (the doctor-enforced set) + ecosystem extras
     // (informational, e.g. node/python/uv/doxygen). Union iteration lets us

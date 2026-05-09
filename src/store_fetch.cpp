@@ -19,11 +19,7 @@
 #include <string>
 #include <system_error>
 
-#ifdef _WIN32
 #include <process.h>  // _getpid
-#else
-#include <unistd.h>   // getpid
-#endif
 
 #include "json.hpp"
 
@@ -48,11 +44,7 @@ fs::path tmp_extract_dir(std::string_view artifact_id) {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     auto suffix = rng() & 0xFFFFFFu;
     std::ostringstream name;
-#ifdef _WIN32
     name << ".tmp-" << artifact_id << "-" << ::_getpid() << "-" << std::hex << suffix;
-#else
-    name << ".tmp-" << artifact_id << "-" << ::getpid() << "-" << std::hex << suffix;
-#endif
     return store_root() / name.str();
 }
 
@@ -162,11 +154,7 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
                  std::chrono::system_clock::now());
              std::ostringstream os;
              struct tm gmt;
-#ifdef _WIN32
              gmtime_s(&gmt, &t);
-#else
-             gmtime_r(&t, &gmt);
-#endif
              os << std::put_time(&gmt, "%Y-%m-%dT%H:%M:%SZ");
              return os.str();
          }()},

@@ -6,14 +6,8 @@
 #include <iostream>
 #include <optional>
 
-#ifdef _WIN32
 #include <windows.h>
 #include <io.h>
-#else
-#include <unistd.h>   // ::isatty (POSIX) — macOS clang doesn't pull it in
-                      // via any of the C++ headers above, unlike libstdc++
-                      // on Linux which is more permissive.
-#endif
 
 namespace luban::log {
 
@@ -22,33 +16,21 @@ namespace {
 std::atomic<bool> g_verbose{false};
 
 bool stderr_is_tty() {
-#ifdef _WIN32
     return _isatty(_fileno(stderr));
-#else
-    return ::isatty(2);
-#endif
 }
 
 bool no_color_env() {
-#ifdef _WIN32
     wchar_t buf[2];
     DWORD n = GetEnvironmentVariableW(L"NO_COLOR", buf, 2);
     return n > 0;
-#else
-    return std::getenv("NO_COLOR") != nullptr;
-#endif
 }
 
 bool enable_vt_on_windows() {
-#ifdef _WIN32
     HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
     if (h == INVALID_HANDLE_VALUE) return false;
     DWORD mode = 0;
     if (!GetConsoleMode(h, &mode)) return false;
     return SetConsoleMode(h, mode | 0x0004 /*ENABLE_VIRTUAL_TERMINAL_PROCESSING*/) != 0;
-#else
-    return true;
-#endif
 }
 
 bool ansi_enabled() {

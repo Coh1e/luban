@@ -5,15 +5,12 @@
 #include <string>
 #include <system_error>
 
-#ifdef _WIN32
 #include <windows.h>
 #include "util/win.hpp"
-#endif
 
 namespace luban::path_search {
 
 std::optional<fs::path> on_path(std::string_view tool) {
-#ifdef _WIN32
     std::wstring wname = win::from_utf8(tool);
     // SearchPathW handles PATHEXT-style fallback only when the bare name has
     // no extension. Iterate the common executable extensions explicitly so
@@ -32,22 +29,6 @@ std::optional<fs::path> on_path(std::string_view tool) {
         }
     }
     return std::nullopt;
-#else
-    const char* path = std::getenv("PATH");
-    if (!path) return std::nullopt;
-    std::string p(path);
-    size_t start = 0;
-    while (start <= p.size()) {
-        size_t end = p.find(':', start);
-        if (end == std::string::npos) end = p.size();
-        fs::path candidate = fs::path(p.substr(start, end - start)) / std::string(tool);
-        std::error_code ec;
-        if (fs::exists(candidate, ec)) return candidate;
-        if (end == p.size()) break;
-        start = end + 1;
-    }
-    return std::nullopt;
-#endif
 }
 
 }  // namespace luban::path_search

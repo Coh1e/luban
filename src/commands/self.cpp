@@ -9,10 +9,8 @@
 #include <sstream>
 #include <system_error>
 
-#ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
-#endif
 
 #include "json.hpp"
 
@@ -44,14 +42,10 @@ constexpr const char* kReleaseApi = "https://api.github.com/repos/Coh1e/luban/re
 
 // ---- self path ----
 fs::path self_exe_path() {
-#ifdef _WIN32
     wchar_t buf[MAX_PATH * 4];
     DWORD got = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(std::size(buf)));
     if (got == 0) return fs::current_path() / "luban.exe";
     return fs::path(std::wstring(buf, got));
-#else
-    return fs::current_path() / "luban";
-#endif
 }
 
 // ---- update ----
@@ -158,7 +152,6 @@ int run_update() {
         }
     }
 
-#ifdef _WIN32
     // Windows: running exe is locked. Move current → .old, new → current.
     // .old will be deletable next reboot or by user later.
     fs::path backup = self; backup += ".old";
@@ -180,11 +173,6 @@ int run_update() {
     }
     // Schedule .old for deletion at reboot — non-fatal if it fails.
     MoveFileExW(backup.wstring().c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
-#else
-    std::error_code ec;
-    fs::rename(tmp, self, ec);
-    if (ec) return 1;
-#endif
 
     log::okf("luban updated: {} → {}", kLubanVersion, release->version);
     log::infof("re-run any luban command to use the new version");
@@ -260,7 +248,6 @@ int sweep_owned_shims() {
     return removed;
 }
 
-#ifdef _WIN32
 // Spawn a batch script that waits for our exit, deletes our exe(s), then deletes itself.
 // Returns immediately (does not wait). Caller should exit shortly after.
 void spawn_self_delete_batch(const std::vector<fs::path>& targets) {
@@ -291,7 +278,6 @@ void spawn_self_delete_batch(const std::vector<fs::path>& targets) {
         CloseHandle(pi.hProcess);
     }
 }
-#endif
 
 // True iff `p` is lexically inside one of luban's four canonical homes.
 // Used by safe_unset_user_env / safe_remove_path_entry to gate destructive
@@ -542,7 +528,6 @@ int run_uninstall(const UninstallOptions& opts) {
     //    keep_toolchains imply "user wants to keep using luban afterwards"
     //    — self-delete would defeat that.
     if (!opts.keep_data && !opts.keep_toolchains) {
-#ifdef _WIN32
         fs::path self = self_exe_path();
         std::vector<fs::path> targets = {self};
         fs::path shim_sibling = self.parent_path() / "luban-shim.exe";
@@ -562,15 +547,6 @@ int run_uninstall(const UninstallOptions& opts) {
             log::ok("done");
             log::infof("luban will be removed shortly. Goodbye.");
         }
-#else
-        fs::path self = self_exe_path();
-        if (opts.dry_run) {
-            log::infof("(dry-run) would delete {}", self.string());
-        } else {
-            std::error_code ec;
-            fs::remove(self, ec);  // best-effort; failure is non-fatal
-        }
-#endif
     } else if (!opts.dry_run) {
         log::infof("luban.exe preserved; re-run anytime");
     }

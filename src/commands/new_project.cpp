@@ -7,9 +7,7 @@
 #include <regex>
 #include <sstream>
 
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 #include "luban/embedded_help/new.hpp"  // luban::embedded_help::new_help
 
@@ -39,13 +37,9 @@ bool valid_name(const std::string& name) {
 //   <exe_dir>/../templates/<kind>         (uncommon)
 //   <repo_root>/templates/<kind>          (build/default/luban.exe → repo)
 fs::path find_template_root(std::string_view kind) {
-#ifdef _WIN32
     wchar_t buf[MAX_PATH * 4];
     DWORD got = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(std::size(buf)));
     fs::path exe = (got == 0) ? fs::current_path() / "luban.exe" : fs::path(std::wstring(buf, got));
-#else
-    fs::path exe = fs::current_path() / "luban";
-#endif
     fs::path exe_dir = exe.parent_path();
     std::vector<fs::path> candidates = {
         exe_dir / "templates" / std::string(kind),

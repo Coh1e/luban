@@ -108,17 +108,11 @@ std::expected<fs::path, std::string> resolve_post_install(
 }
 
 /// Run a post_install script with cwd at the artifact root. Wraps with
-/// the OS shell (cmd /c on Windows, /bin/sh on POSIX) so .bat/.cmd/.sh
-/// all work without per-extension dispatch. Returns the script's exit
-/// code (0 = success).
+/// `cmd.exe /c <script>` so .bat/.cmd/.ps1 all work without per-extension
+/// dispatch. Returns the script's exit code (0 = success).
 std::expected<void, std::string> run_post_install(
     const fs::path& script, const fs::path& cwd) {
-    std::vector<std::string> cmd;
-#ifdef _WIN32
-    cmd = {"cmd.exe", "/c", script.string()};
-#else
-    cmd = {"/bin/sh", script.string()};
-#endif
+    std::vector<std::string> cmd = {"cmd.exe", "/c", script.string()};
     log::stepf("post_install: {}", script.string());
     int rc = proc::run(cmd, cwd.string(), {});
     if (rc != 0) {
@@ -466,12 +460,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
                 for (auto const& e : fs::directory_iterator(sd_abs, ec_iter)) {
                     if (!e.is_regular_file(ec_iter)) continue;
                     auto p = e.path();
-#ifdef _WIN32
                     if (p.extension() != ".exe") continue;
-#else
-                    auto perms = fs::status(p, ec_iter).permissions();
-                    if ((perms & fs::perms::owner_exec) == fs::perms::none) continue;
-#endif
                     std::string rel_str = (*tool.shim_dir + "/" + p.filename().string());
                     if (auto r = add_shim(p, rel_str); !r) {
                         return std::unexpected(r.error());

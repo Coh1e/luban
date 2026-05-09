@@ -69,9 +69,9 @@ std::string quote_pwsh(const std::string& s) {
 }
 
 // Emit eval-able env exports + PATH prepend for the requested shell. Reads
-// env_snapshot::path_dirs() (toolchain bin dirs + bin_dir) and env_dict()
-// (VCPKG_ROOT / vcpkg caches / EM_CONFIG) so the output mirrors exactly
-// what luban-spawned children see.
+// env_snapshot::path_dirs() (xdg_bin_home + MSVC tool dirs) and env_dict()
+// (VCPKG download/binary/registries caches + MSVC env vars) so the output
+// mirrors exactly what luban-spawned children see.
 //
 // Use case: CI scripts, one-off containers, fresh shells where running
 // `luban env --user` (which writes HKCU) is undesirable. Like
@@ -90,7 +90,9 @@ void print_shell_exports(std::string_view shell) {
             for (auto& c : s) if (c == '\\') c = '/';
             joined += s;
         }
-        std::cout << "export PATH=" << quote_bash(joined + ":${PATH:-}") << "\n";
+        if (!joined.empty()) {
+            std::cout << "export PATH=" << quote_bash(joined + ":${PATH:-}") << "\n";
+        }
         for (auto& [k, v] : extras) {
             std::cout << "export " << k << "=" << quote_bash(v) << "\n";
         }
@@ -102,7 +104,9 @@ void print_shell_exports(std::string_view shell) {
             if (i) joined.push_back(';');
             joined += dirs[i].string();
         }
-        std::cout << "set \"PATH=" << quote_cmd(joined) << ";%PATH%\"\r\n";
+        if (!joined.empty()) {
+            std::cout << "set \"PATH=" << quote_cmd(joined) << ";%PATH%\"\r\n";
+        }
         for (auto& [k, v] : extras) {
             std::cout << "set \"" << k << "=" << quote_cmd(v) << "\"\r\n";
         }
@@ -113,7 +117,9 @@ void print_shell_exports(std::string_view shell) {
             if (i) joined.push_back(';');
             joined += dirs[i].string();
         }
-        std::cout << "$env:PATH = " << quote_pwsh(joined) << " + ';' + $env:PATH\r\n";
+        if (!joined.empty()) {
+            std::cout << "$env:PATH = " << quote_pwsh(joined) << " + ';' + $env:PATH\r\n";
+        }
         for (auto& [k, v] : extras) {
             std::cout << "$env:" << k << " = " << quote_pwsh(v) << "\r\n";
         }

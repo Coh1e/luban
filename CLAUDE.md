@@ -122,8 +122,8 @@ Unit tests (doctest, ADR-0004): `cmake --build --preset release --target luban-t
 then `./build/release/luban-tests.exe`. Tests are EXCLUDE_FROM_ALL — default
 `cmake --build` skips them.
 
-End-to-end smoke: `scripts/smoke.bat` / `scripts/smoke.sh` runs new → add/remove →
-build → run → target add/build → doctor without vcpkg network.
+End-to-end smoke: `scripts/smoke.bat` runs new → add/remove → build → run →
+doctor → describe → bp apply without vcpkg network.
 
 ## Repo layout (essential)
 
@@ -139,7 +139,7 @@ src/                           # luban C++23 source
   win_path.cpp                 # HKCU PATH/env writeout
   proc.cpp                     # spawn with env merge
   hash.cpp                     # SHA256 verify
-  download.cpp                 # HTTPS GET + SHA (Win → curl_subprocess; POSIX → libcurl)
+  download.cpp                 # HTTPS GET + SHA via curl_subprocess (curl.exe, Win10 1803+)
   curl_subprocess.cpp          # Win32 curl.exe subprocess driver
   archive.cpp                  # ZIP extract w/ traversal guard
   progress.{hpp,cpp}           # 统一进度 UI
@@ -223,8 +223,9 @@ docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements
 ### Add a new CLI verb `foo`
 
 1. `src/commands/foo.cpp` — `int run_foo(const cli::ParsedArgs&)` + `void register_foo()`.
-   Set `c.group` (`blueprint` / `project` / `env` / `utility`) +
-   `c.long_help` + `c.examples`.
+   Set `c.group` (`project` / `dep` / `setup` / `advanced` — these are the
+   four group strings actually used in `src/commands/*.cpp`; `--help`
+   clusters by them) + `c.long_help` + `c.examples`.
 2. `CMakeLists.txt` — append `src/commands/foo.cpp` to `LUBAN_SOURCES`.
 3. `src/main.cpp` — declare + call `register_foo()`.
 4. (Optional) `templates/help/foo.md` + 加进 `embed_text.cmake` 的 foreach。
@@ -270,7 +271,7 @@ return {
   不一致时用）。
 - `post_install = "<rel-path>"` 在 `tool.X`，extract 后跑一次性脚本
   （vcpkg bootstrap 风格）。路径相对 artifact 根，路径穿越被
-  blueprint_apply 拦截；Windows 走 `cmd /c`，POSIX 走 `/bin/sh`。
+  blueprint_apply 拦截；走 `cmd.exe /c <script>` (Windows-only post-v1.0.5)。
   仅在新提取（非缓存命中）时触发。
 - 添加新 source scheme：照 `src/source_resolver_github.cpp` 写一个 per-scheme
   TU，在 `LUBAN_SOURCES` 加一行，static-init 注册到 `source_resolver` 的

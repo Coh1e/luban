@@ -115,15 +115,7 @@ void install_sandbox(lua_State* L) {
 // ---- luban.* API surface ------------------------------------------------
 
 int api_platform_os(lua_State* L) {
-#ifdef _WIN32
     lua_pushliteral(L, "windows");
-#elif defined(__APPLE__)
-    lua_pushliteral(L, "macos");
-#elif defined(__linux__)
-    lua_pushliteral(L, "linux");
-#else
-    lua_pushliteral(L, "unknown");
-#endif
     return 1;
 }
 

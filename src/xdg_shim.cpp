@@ -4,12 +4,9 @@
 // blueprint_reconcile (rollback) can rebuild shims it deletes. The format
 // matches what blueprint_apply has been emitting since v1.0:
 //
-//   Windows: `@echo off\r\n"<exe>" %*\r\n`  (CRLF line endings — cmd.exe
-//            is happier with them and src/shim.cpp standardized on CRLF
-//            in v0.x for the same reason).
-//   POSIX  : symlink at `<bin>/<alias>` pointing at `<exe>`. Falls back to
-//            a plain copy + chmod when the filesystem refuses symlinks
-//            (rare — FAT-style mounts).
+//   `@echo off\r\n"<exe>" %*\r\n`  (CRLF line endings — cmd.exe is happier
+//   with them and src/shim.cpp standardized on CRLF in v0.x for the same
+//   reason).
 
 #include "xdg_shim.hpp"
 
@@ -29,7 +26,6 @@ std::expected<fs::path, std::string> write_cmd_shim(
         return std::unexpected("cannot create " + bin.string() + ": " + ec.message());
     }
 
-#ifdef _WIN32
     fs::path shim_path = bin / (std::string(alias) + ".cmd");
     std::ofstream out(shim_path, std::ios::binary | std::ios::trunc);
     if (!out) {
@@ -45,25 +41,6 @@ std::expected<fs::path, std::string> write_cmd_shim(
         return std::unexpected("write failure on " + shim_path.string());
     }
     return shim_path;
-#else
-    fs::path shim_path = bin / std::string(alias);
-    fs::remove(shim_path, ec);
-    fs::create_symlink(exe, shim_path, ec);
-    if (!ec) return shim_path;
-
-    ec.clear();
-    fs::copy_file(exe, shim_path, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        return std::unexpected("cannot create shim at " + shim_path.string() +
-                               ": " + ec.message());
-    }
-    fs::permissions(shim_path,
-                    fs::perms::owner_all | fs::perms::group_read |
-                        fs::perms::group_exec | fs::perms::others_read |
-                        fs::perms::others_exec,
-                    fs::perm_options::add, ec);
-    return shim_path;
-#endif
 }
 
 std::expected<void, std::string> remove_cmd_shim(const fs::path& shim_path) {
@@ -75,10 +52,6 @@ std::expected<void, std::string> remove_cmd_shim(const fs::path& shim_path) {
         return std::unexpected("cannot remove " + shim_path.string() +
                                ": " + ec.message());
     }
-#ifndef _WIN32
-    // POSIX symlinks land at <bin>/<alias> (no extension). On Windows the
-    // recorded path is the .cmd; both directions handled above.
-#endif
     return {};
 }
 

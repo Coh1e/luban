@@ -6,22 +6,14 @@
 #include <cstdlib>
 #include <format>
 
-#ifdef _WIN32
 #include <io.h>
-#else
-#include <unistd.h>
-#endif
 
 namespace luban::progress {
 
 namespace {
 
 bool detect_tty_enabled() {
-#ifdef _WIN32
     bool tty = _isatty(_fileno(stderr));
-#else
-    bool tty = ::isatty(2);
-#endif
     bool force_on  = std::getenv("LUBAN_PROGRESS") != nullptr;
     bool force_off = std::getenv("LUBAN_NO_PROGRESS") != nullptr;
     return (tty || force_on) && !force_off;

@@ -6,13 +6,9 @@
 #include <string>
 #include <string_view>
 
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 namespace luban::win {
-
-#ifdef _WIN32
 
 inline std::wstring from_utf8(std::string_view s) {
     if (s.empty()) return {};
@@ -33,7 +29,5 @@ inline std::string to_utf8(std::wstring_view s) {
                         out.data(), n, nullptr, nullptr);
     return out;
 }
-
-#endif
 
 }  // namespace luban::win

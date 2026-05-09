@@ -1,15 +1,9 @@
 #include "win_path.hpp"
 
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 #include <algorithm>
-#include <cstdlib>
-#include <cstring>
 #include <cwctype>
-#include <fstream>
-#include <sstream>
 #include <vector>
 
 #include "util/win.hpp"
@@ -17,8 +11,6 @@
 namespace luban::win_path {
 
 namespace {
-
-#ifdef _WIN32
 
 // HKCU\Environment 的子键名。
 constexpr const wchar_t* kEnvKey = L"Environment";
@@ -108,135 +100,9 @@ std::wstring normalize(std::wstring s) {
     return s;
 }
 
-#endif  // _WIN32
-
 }  // namespace
-
-#ifndef _WIN32
-// POSIX implementation of add_to_user_path / remove_from_user_path.
-//
-// Strategy: append a marker-block to the user's shell rc file
-// (~/.bashrc + ~/.zshrc when both exist), with a runtime-idempotent
-// `case` guard so re-sourcing the rc doesn't pile up duplicates.
-// One block per managed dir; remove looks up by the dir-specific
-// marker and deletes the block.
-//
-// We deliberately don't try to handle fish (different syntax) in v1;
-// fish users get a TODO message via log when they hit this code path.
-
-namespace {
-
-const char* kBeginMarker = "# >>> luban-managed PATH: ";
-const char* kEndMarker = "# <<< luban-managed PATH <<<";
-
-/// Pick the rc files to update. We always add to ~/.bashrc if it
-/// exists or to ~/.profile as a fallback; we ALSO add to ~/.zshrc
-/// when present (zsh users typically have both bash and zsh available).
-/// Returning multiple files is OK — each file gets its own marker block,
-/// and the case-guard inside makes runtime PATH lookups idempotent.
-std::vector<fs::path> rc_paths() {
-    std::vector<fs::path> out;
-    const char* home = std::getenv("HOME");
-    if (!home || !*home) return out;
-    fs::path h(home);
-    std::error_code ec;
-    if (fs::is_regular_file(h / ".bashrc", ec)) out.push_back(h / ".bashrc");
-    if (fs::is_regular_file(h / ".zshrc", ec))  out.push_back(h / ".zshrc");
-    if (out.empty()) {
-        // Neither bashrc nor zshrc — fall through to .profile
-        // (POSIX default for sh).
-        out.push_back(h / ".profile");
-    }
-    return out;
-}
-
-std::string make_block(const fs::path& dir) {
-    std::ostringstream ss;
-    ss << kBeginMarker << dir.string() << " >>>\n"
-       << "case \":$PATH:\" in\n"
-       << "  *\":" << dir.string() << ":\"*) ;;\n"
-       << "  *) export PATH=\"" << dir.string() << ":$PATH\" ;;\n"
-       << "esac\n"
-       << kEndMarker << "\n";
-    return ss.str();
-}
-
-std::string read_file(const fs::path& p) {
-    std::ifstream in(p);
-    if (!in) return "";
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
-bool write_file(const fs::path& p, const std::string& content) {
-    std::ofstream out(p, std::ios::binary | std::ios::trunc);
-    if (!out) return false;
-    out << content;
-    return static_cast<bool>(out);
-}
-
-bool block_present(const std::string& content, const fs::path& dir) {
-    std::string marker = std::string(kBeginMarker) + dir.string() + " >>>";
-    return content.find(marker) != std::string::npos;
-}
-
-/// Remove our marker-block for `dir` from `content`. Returns the
-/// modified content; the bool is true iff something was removed.
-std::pair<std::string, bool> strip_block(const std::string& content,
-                                          const fs::path& dir) {
-    std::string begin_tag = std::string(kBeginMarker) + dir.string() + " >>>";
-    auto begin_pos = content.find(begin_tag);
-    if (begin_pos == std::string::npos) return {content, false};
-    auto end_pos = content.find(kEndMarker, begin_pos);
-    if (end_pos == std::string::npos) return {content, false};
-    end_pos += std::strlen(kEndMarker);
-    // Eat trailing newline if present.
-    if (end_pos < content.size() && content[end_pos] == '\n') ++end_pos;
-    // Eat leading newline before the block too, to avoid leaving a
-    // blank stub.
-    auto strip_start = begin_pos;
-    if (strip_start > 0 && content[strip_start - 1] == '\n' &&
-        (strip_start == 1 || content[strip_start - 2] == '\n')) {
-        --strip_start;
-    }
-    return {content.substr(0, strip_start) + content.substr(end_pos), true};
-}
-
-bool posix_add(const fs::path& dir) {
-    auto paths = rc_paths();
-    if (paths.empty()) return false;
-    bool any_added = false;
-    for (auto& rc : paths) {
-        std::string content = read_file(rc);
-        if (block_present(content, dir)) continue;  // already there
-        if (!content.empty() && content.back() != '\n') content.push_back('\n');
-        content.push_back('\n');  // blank line separator
-        content += make_block(dir);
-        if (write_file(rc, content)) any_added = true;
-    }
-    return any_added;
-}
-
-bool posix_remove(const fs::path& dir) {
-    auto paths = rc_paths();
-    if (paths.empty()) return false;
-    bool any_removed = false;
-    for (auto& rc : paths) {
-        std::string content = read_file(rc);
-        auto [stripped, did] = strip_block(content, dir);
-        if (did) {
-            if (write_file(rc, stripped)) any_removed = true;
-        }
-    }
-    return any_removed;
-}
-
-}  // namespace
-#endif  // !_WIN32
 
 bool add_to_user_path(const fs::path& dir) {
-#ifdef _WIN32
     std::wstring target = normalize(win::from_utf8(dir.string()));
     auto [current, type] = read_path_raw();
     auto parts = split_semi(current);
@@ -253,13 +119,9 @@ bool add_to_user_path(const fs::path& dir) {
     if (type != REG_SZ && type != REG_EXPAND_SZ) type = REG_EXPAND_SZ;
 
     return write_path_raw(join_semi(parts), type);
-#else
-    return posix_add(dir);
-#endif
 }
 
 bool remove_from_user_path(const fs::path& dir) {
-#ifdef _WIN32
     std::wstring target = normalize(win::from_utf8(dir.string()));
     auto [current, type] = read_path_raw();
     auto parts = split_semi(current);
@@ -272,24 +134,16 @@ bool remove_from_user_path(const fs::path& dir) {
     if (parts.size() == orig) return false;
     if (type != REG_SZ && type != REG_EXPAND_SZ) type = REG_EXPAND_SZ;
     return write_path_raw(join_semi(parts), type);
-#else
-    return posix_remove(dir);
-#endif
 }
 
 std::vector<std::string> read_user_path() {
-#ifdef _WIN32
     auto [current, _] = read_path_raw();
     std::vector<std::string> out;
     for (auto& w : split_semi(current)) out.push_back(win::to_utf8(w));
     return out;
-#else
-    return {};
-#endif
 }
 
 bool set_user_env(const std::string& name, const std::string& value, bool expand) {
-#ifdef _WIN32
     HKEY key = nullptr;
     LONG rc = RegOpenKeyExW(HKEY_CURRENT_USER, kEnvKey, 0, KEY_SET_VALUE, &key);
     if (rc != ERROR_SUCCESS) return false;
@@ -308,14 +162,9 @@ bool set_user_env(const std::string& name, const std::string& value, bool expand
                         reinterpret_cast<LPARAM>(L"Environment"),
                         SMTO_ABORTIFHUNG, 5000, &result);
     return true;
-#else
-    (void)name; (void)value; (void)expand;
-    return false;
-#endif
 }
 
 bool unset_user_env(const std::string& name) {
-#ifdef _WIN32
     HKEY key = nullptr;
     LONG rc = RegOpenKeyExW(HKEY_CURRENT_USER, kEnvKey, 0, KEY_SET_VALUE, &key);
     if (rc != ERROR_SUCCESS) return false;
@@ -328,14 +177,9 @@ bool unset_user_env(const std::string& name) {
                         reinterpret_cast<LPARAM>(L"Environment"),
                         SMTO_ABORTIFHUNG, 5000, &result);
     return true;
-#else
-    (void)name;
-    return false;
-#endif
 }
 
 std::optional<std::string> get_user_env(const std::string& name) {
-#ifdef _WIN32
     HKEY key = nullptr;
     LONG rc = RegOpenKeyExW(HKEY_CURRENT_USER, kEnvKey, 0, KEY_QUERY_VALUE, &key);
     if (rc != ERROR_SUCCESS) return std::nullopt;
@@ -359,10 +203,6 @@ std::optional<std::string> get_user_env(const std::string& name) {
     if (rc != ERROR_SUCCESS) return std::nullopt;
     while (!buf.empty() && buf.back() == L'\0') buf.pop_back();
     return win::to_utf8(buf);
-#else
-    (void)name;
-    return std::nullopt;
-#endif
 }
 
 }  // namespace luban::win_path
