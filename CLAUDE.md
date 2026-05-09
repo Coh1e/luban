@@ -4,34 +4,25 @@
 > recipe-driven, terse. Design lives in `docs/DESIGN.md`; this file points
 > at recipes and gotchas. Don't duplicate design rationale here.
 
-## ⚠ v1.0.0 MVP refactor in progress
+## v1.0.0 — MVP convergence shipped
 
-`docs/DESIGN.md` was just collapsed back to a 9-section MVP requirements doc
-(§1–§11). The code currently overshoots the MVP — **the following are slated
-for removal in a v0.4.4 → v1.0.0 refactor** (see plan
-`C:\Users\Rust\.claude\plans\docs-claude-md-clever-pnueli.md`):
+luban v1.0.0 is the DESIGN §1–§11 MVP. The verb surface, module
+inventory, and blueprint frontend all now match the doc. Notable
+differences from earlier prototypes:
 
-- **Verbs**: `bp rollback / gc / status / unapply / search / source rm / source ls`,
-  `target add / rm`, `shim`, `sync`, `which`, `search`, `doc`, `check`, `test`,
-  `clean`, `fmt`, `tree`, `update`, `outdated`, `completion`, `migrate`. DESIGN
-  §11 explicitly drops rollback / generation history / target add+rm / tool
-  install / complex source trust.
-- **Modules**: `generation.cpp` + `blueprint_reconcile.cpp` (rollback infra),
-  `registry.cpp` (v0.x tool install registry), `qjs_engine.cpp` +
-  `third_party/quickjs/` (DESIGN §2 #6 picks Lua as primary; QuickJS-NG never
-  shipped a real consumer), `source_resolver_pwsh.cpp` (pwsh-module scheme).
-- **Blueprint frontend**: `blueprint_toml.cpp` removal — DESIGN §2 #6 says
-  "Lua 是 primary frontend, TOML 是静态 projection". TOML stops being an
-  *input* format for blueprints; the only `.lua` survives. Project-level
-  `luban_toml.cpp` / `vcpkg_manifest.cpp` (still TOML) are unaffected — those
-  are project files, not blueprints.
-- **New verb**: `msvc shell` / `msvc run` (DESIGN §6.2). `commands/env.cpp`'s
-  `--msvc-init` / `--msvc-clear` flags stay as the internal mechanism.
-
-When you make changes, prefer the post-refactor shape (Lua-only, MVP verbs).
-This file describes both the **current code state** and the **MVP target**;
-sections marked **🚧 beyond MVP** describe code that exists today but is
-slated for removal.
+- **Lua is the only blueprint format** (DESIGN §2 #6). `.toml` blueprints
+  are not parsed; only `.lua` is accepted.
+- **No generation/rollback** (DESIGN §11). State persists as flat files
+  in `<state>/luban/{applied.txt,owned-shims.txt}` via `applied_db`.
+- **No tool install registry** (DESIGN §11 drops the v0.x model).
+  `installed.json` is gone; `bp source` registry + `applied.txt` is the
+  authoritative successor.
+- **No QuickJS-NG** (DESIGN §2 #6 picks Lua as the single script layer).
+- **Only `github:` source scheme** (DESIGN §11 drops generic application
+  install — no more `pwsh-module:`).
+- **`msvc shell` / `msvc run -- <cmd>` is the canonical MSVC entry point**
+  (DESIGN §6.2). `env --msvc-init` / `--msvc-clear` survive as the
+  internal capture mechanism.
 
 ## What luban is (15-second version)
 
@@ -68,7 +59,7 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
   所需的声明集合。`foundation` = git+gcm；`cpp-toolchain` = C++ 工具链；
   `cli-tools` = 工作台 CLI。一张图纸 ≈ 一种能力。**DESIGN §2 #6: Lua DSL
   是 blueprint 的唯一入口**，TOML 仅作为可选的静态 projection（describe 输出
-  方向，不是输入方向）。当前代码仍认 `.toml` 输入 — 🚧 v1.0.0 删。
+  方向，不是输入方向）。
 - **tool（工具 / 可执行物）**：实现能力靠的程序。一条 `tool` 声明对应一个
   PATH 上能调用的二进制（cmake / ninja / git / ssh / ...），由 luban 装在
   `~/.local/share/luban/store/` 并 shim 到 `~/.local/bin/`。
@@ -95,22 +86,21 @@ luban 的图纸描述"赋予一台机器某个能力"，自上而下三层：
 - 非官方 bp source：红色警告 + 显式来源 + capability 列表 + 用户确认
 - doctor 必须能指出：bp/tool 来源非官方、tool 走 TOFU、tool 来自 external skip
 
-## Verbs（DESIGN §5 MVP = 13 user-facing）
+## Verbs（DESIGN §5 MVP = 13 user-facing, 12 register）
 
-| group | verb | 状态 |
-| --- | --- | --- |
-| blueprint | `bp source add` / `bp source update` / `bp list` / `bp apply` (+ `--dry-run`) | MVP ✓ |
-| blueprint | `bp source rm / source ls / unapply / status / rollback / gc / search` | 🚧 beyond MVP — 删 |
-| project | `new` / `add` / `remove` / `build` / `run` | MVP ✓ |
-| project | `target add+rm` / `sync` / `check` / `test` / `doc` / `clean` / `fmt` / `tree` / `update` / `outdated` | 🚧 beyond MVP — 删 |
-| env | `env` / `doctor` | MVP ✓ |
-| utility | `which` / `search` / `describe` / `self update` / `self uninstall` (+ `--dry-run`) / `completion` | `describe` + `self` 保留；其余 🚧 删 |
-| msvc | `msvc shell` / `msvc run` (DESIGN §6.2) | 🚧 待新增 |
-| transition | `migrate` (v0.x bridge) | 🚧 删 |
+| group | verb |
+| --- | --- |
+| blueprint | `bp source add` / `bp source update` / `bp list` / `bp apply` (+ `--dry-run`) |
+| project | `new` / `add` / `remove` / `build` / `run` |
+| env | `env` / `doctor` |
+| utility | `describe` / `self update` / `self uninstall` (+ `--dry-run`) |
+| msvc | `msvc shell` / `msvc run -- <cmd>` (DESIGN §6.2) |
 
 `luban describe` 支持 `port:<name>` / `tool:<name>` 前缀做 introspection。
 
-实际 `register_*()` 调用见 `src/main.cpp`（当前 24 个；MVP 收敛后 11 个）。
+实际 12 个 `register_*()` 调用见 `src/main.cpp`（doctor / env / new / build /
+add / remove / run / describe / self / blueprint / msvc + the bp dispatch
+which serves source/list/apply sub-verbs internally).
 
 ## Build (Windows, from a clean toolchain shell)
 
@@ -158,9 +148,10 @@ src/                           # luban C++23 source
   file_util.cpp                # file utilities
   path_search.cpp              # PATH search
   platform.cpp                 # OS abstraction
-  env_snapshot.cpp             # PATH + persistent_env + injected_env overlay
+  env_snapshot.cpp             # PATH + injected_env overlay (xdg_bin_home + msvc dirs)
   external_skip.cpp            # external_skip = "ssh.exe" probing
-  registry.cpp                 # 🚧 v0.x tool install registry — 删
+  applied_db.cpp               # <state>/luban/{applied.txt,owned-shims.txt}
+  iso_time.cpp                 # ISO-8601 UTC timestamp helper
   commands/<verb>.cpp          # one cpp per verb
 
   # Blueprint engine:
@@ -169,24 +160,20 @@ src/                           # luban C++23 source
   lua_frontend.cpp             # 唯一允许 #include <lua.h> 的 .cpp（不变量 9）
                                # 把 lua refs / embedded module 包成 std::function 喂 core
   lua_json.cpp                 # lua table ↔ JSON 桥
-  qjs_engine.cpp               # 🚧 QuickJS-NG — DESIGN §2 #6 picks Lua only — 删
-  blueprint_lua.cpp            # 主 frontend (DESIGN §2 #6 / §4)
-  blueprint_toml.cpp           # 🚧 TOML 入口 — 删
+  blueprint_lua.cpp            # 唯一 blueprint frontend (DESIGN §2 #6 / §4)
   blueprint_lock.cpp           # JSON lock R/W (内部，DESIGN §4 不暴露)
   source_registry.cpp          # ~/.config/luban/sources.toml R/W
   source_resolver.cpp          # source 块 → registry-first → C++ scheme dispatch
-  source_resolver_github.cpp   # `github:` scheme
-  source_resolver_pwsh.cpp     # 🚧 `pwsh-module:` scheme — 删
+  source_resolver_github.cpp   # 唯一 source scheme (DESIGN §11 drops 其他)
   store.cpp / store_fetch.cpp  # 内容寻址 store
   file_deploy.cpp              # replace / drop-in / append 部署 + backup
   config_renderer.cpp          # config 块 → renderer dispatch (core 不引 lua.h)
   renderer_registry.cpp        # name → RendererFns (std::function)
   resolver_registry.cpp        # scheme → ResolverFn (std::function)
-  generation.cpp               # 🚧 generation 快照 — 删 (replace with applied.txt)
-  blueprint_reconcile.cpp      # 🚧 rollback infra — 删
-  blueprint_apply.cpp          # 编排器
+  blueprint_apply.cpp          # 编排器（applied_db + owned-shims 落盘）
   commands/blueprint.cpp       # apply/list/source 子派发
   commands/bp_source.cpp       # bp source add/update sub-verbs
+  commands/msvc.cpp            # msvc shell / msvc run -- <cmd>
 
   # Project / engineering 层:
   vcpkg_manifest.cpp           # 安全编辑 vcpkg.json (TOML — 项目层，与 blueprint 无关)
@@ -200,10 +187,9 @@ templates/{app,wasm-app}/      # luban new <kind> 脚手架
                                # `{{name}}` 在内容 + 目录名都展开
 templates/help/                # 长 --help 文本，编进二进制（目前只有 new.md）
 
-third_party/                   # 单 header vendored libs + lua54/ + quickjs/(🚧 删)
+third_party/                   # 单 header vendored libs + lua54/
   json.hpp miniz.{h,c} toml.hpp doctest.h + their LICENSEs
-  lua54/                       # 60 .c/.h（破例多文件）
-  quickjs/                     # 🚧 ~200 .c/.h — 删
+  lua54/                       # 60 .c/.h（唯一多文件破例）
 
 docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements)
 .github/workflows/build.yml    # windows MSVC + MinGW dual-build, tag→release
@@ -230,8 +216,7 @@ docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements
 11. **luban 是便利层，不接管 CMake**（DESIGN §2 #8）——生成的 CMake 内容
     脱离 luban 仍可用
 
-**放宽**：第三方 vendor 优先 single-header；Lua 5.4 是当前唯一多文件例外
-（v0.x 还有 QuickJS-NG，v1.0.0 删除）。
+**放宽**：第三方 vendor 优先 single-header；Lua 5.4 是唯一多文件例外。
 
 ## Common task recipes
 
@@ -383,8 +368,6 @@ CI verifies invariant 7 on both flavors:
 
 - **Design**: `docs/DESIGN.md` — 唯一设计文档 (§1–§11)；MVP 概念层。
 - **History**: `git log --oneline` — 每步独立 commit。
-- **Refactor plan**: `C:\Users\Rust\.claude\plans\docs-claude-md-clever-pnueli.md`
-  — v0.4.4 → v1.0.0 MVP 收敛的逐步计划（17 step，含 luban-bps 同步）。
 
 ## Critical reusable functions (don't reinvent)
 
@@ -398,7 +381,9 @@ CI verifies invariant 7 on both flavors:
 | `progress::Bar`                                                                | `src/progress.{hpp,cpp}`          | 统一进度 UI：`↓ fetch / ↻ extract / ✓` glyph + Bytes/Items unit + TTY auto-detect + LUBAN_PROGRESS env                                                 |
 | `archive::extract(zip, dest, on_progress)`                                     | `src/archive.cpp`                 | ZIP w/ traversal guard + 可选 progress cb                                                                                                           |
 | `hash::verify_file(path, spec)`                                                | `src/hash.cpp`                    | SHA256 校验                                                                                                                                         |
-| `env_snapshot::apply_to(env)`                                                  | `src/env_snapshot.cpp`            | PATH + persistent_env + injected_env overlay                                                                                                      |
+| `env_snapshot::apply_to(env)`                                                  | `src/env_snapshot.cpp`            | PATH + injected_env overlay (xdg_bin_home + MSVC dirs + VCPKG cache)                                                                              |
+| `applied_db::{is_applied,mark_applied,record_owned_shim,list_owned_shims,clear}` | `src/applied_db.{hpp,cpp}`        | flat-file state under `<state>/luban/`：bp 已应用集 + luban-owned shim 路径簿                                                                                |
+| `iso_time::now()`                                                              | `src/iso_time.{hpp,cpp}`          | ISO-8601 UTC second-precision timestamp                                                                                                           |
 | `luban_cmake_gen::regenerate_in_project(dir, targets)`                         | `src/luban_cmake_gen.cpp`         | 重渲项目 `luban.cmake`                                                                                                                                |
 | `vcpkg_manifest::{add,remove,save}`                                            | `src/vcpkg_manifest.cpp`          | 安全编辑 `vcpkg.json`                                                                                                                                 |
 | `lua_engine::Engine::eval_* / attach_registry / attach_resolver_registry`      | `src/lua_engine.cpp`              | Sandboxed Lua VM；可挂接两个 registry 让 `luban.register_*` 生效                                                                                           |
@@ -409,7 +394,5 @@ CI verifies invariant 7 on both flavors:
 | `source_resolver::resolve / resolve_with_registry`                             | `src/source_resolver.cpp`         | source 块 → registry-first → C++ scheme dispatch (github)                                                                                          |
 | `blueprint_lua::parse_file_in_engine`                                          | `src/blueprint_lua.cpp`           | 用调用方的 Engine parse Lua bp（`register_*` 副作用落到 Engine 挂的 registry）                                                                                  |
 | `cli::Subcommand::forward_rest`                                                | `src/cli.hpp`                     | argv 透传（`luban run` 风格）                                                                                                                           |
-
-🚧 **删除中**（v1.0.0 refactor）：`generation::*`、`registry::*`（v0.x tool
-install 注册表，与 `renderer_registry` / `resolver_registry` 同名不同物）、
-`blueprint_toml::*`、`qjs_engine::*`、`source_resolver_pwsh::*`。
+| `applied_db::{is_applied, mark_applied, record_owned_shim, list_owned_shims, clear}` | `src/applied_db.{hpp,cpp}` | `<state>/luban/applied.txt` + `owned-shims.txt` 管理。apply 写入；`meta.requires` 门控 + `self uninstall` 读取                                            |
+| `iso_time::now()`                                                              | `src/iso_time.{hpp,cpp}`          | ISO-8601 UTC 秒精度时间戳。lock `resolved_at` + bp source registry `added_at` / `commit` 用                                                              |

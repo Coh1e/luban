@@ -216,7 +216,7 @@ void register_new() {
         "luban new lib mylib\tSame, but lib instead of executable",
         "luban new app foo --no-build\tSkip the initial build",
         "luban new app foo --at C:\\projects\tParent directory override",
-        "luban new app foo --target wasm\tEmscripten C++ \xe2\x86\x92 .html/.js/.wasm output (requires emscripten on PATH; `main/cpp-base-wasm` blueprint TBD)",
+        "luban new app foo --target wasm\tEmscripten C++ \xe2\x86\x92 .html/.js/.wasm output (requires emsdk on PATH; wasm bp TBD)",
     };
     c.run = run_new;
     cli::register_subcommand(std::move(c));

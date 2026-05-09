@@ -69,9 +69,11 @@ void print_top_help() {
     std::cout <<
         "Common workflows:\n"
         "  First-time machine setup (apply blueprints):\n"
-        "    luban bp apply main/cpp-base    install LLVM-MinGW + cmake + ninja + vcpkg\n"
-        "    luban bp apply main/cli-base    install zoxide / starship / fd / ripgrep\n"
-        "    luban env --user                    register on HKCU PATH (rustup-style)\n"
+        "    luban bp source add Coh1e/luban-bps --name main\n"
+        "    luban bp apply main/foundation    install git + lfs + gcm + openssh\n"
+        "    luban bp apply main/cpp-toolchain install llvm-mingw + cmake + ninja + vcpkg\n"
+        "    luban bp apply main/cli-tools     install zoxide / starship / fd / ripgrep\n"
+        "    luban env --user                  register on HKCU PATH (rustup-style)\n"
         "\n"
         "  Start a new C++ project (no deps):\n"
         "    luban new app foo      scaffold + auto-build (compile_commands.json ready)\n"
@@ -80,10 +82,6 @@ void print_top_help() {
         "  Add a vcpkg library:\n"
         "    luban add fmt          edits vcpkg.json + regenerates luban.cmake\n"
         "    luban build            cmake fetches the dep via vcpkg manifest mode\n"
-        "\n"
-        "  Multi-target project:\n"
-        "    luban target add lib mylib          scaffold src/mylib/{.h,.cpp,CMakeLists.txt}\n"
-        "    (in src/foo/CMakeLists.txt) target_link_libraries(foo PRIVATE mylib)\n"
         "\n"
         "Run `luban <command> --help` or `luban help <topic>` for details.\n";
 }

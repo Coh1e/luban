@@ -152,7 +152,7 @@ void register_msvc() {
     cli::Subcommand c;
     c.name = "msvc";
     c.help = "MSVC vcvars-injected shell / one-shot exec (DESIGN §6.2)";
-    c.group = "env";
+    c.group = "setup";
     c.long_help =
         "  `luban msvc <subcommand>` injects MSVC's vcvarsall.bat env\n"
         "  (INCLUDE / LIB / LIBPATH / PATH / ~30 others) into a child\n"

@@ -71,7 +71,7 @@ int run_add(const cli::ParsedArgs& a) {
     if (is_system_tool(pkg)) {
         log::errf("'{}' is a system-level toolchain, not a vcpkg library.", pkg);
         log::infof("System tools live in <data>/toolchains/. Use:");
-        log::infof("  luban bp apply main/cpp-base   # ships {} alongside the rest", pkg);
+        log::infof("  luban bp apply main/cpp-toolchain   # ships {} alongside the rest", pkg);
         return 2;
     }
 
@@ -127,7 +127,7 @@ void register_add() {
         "  Version constraint: `luban add fmt@10` → vcpkg `version>=: 10.0.0`.\n"
         "\n"
         "  System tools (cmake, ninja, clang, ...) are rejected — those are\n"
-        "  managed via `luban bp apply main/cpp-base`, not vcpkg.";
+        "  managed via `luban bp apply main/cpp-toolchain`, not vcpkg.";
     c.n_positional = 1;
     c.positional_names = {"pkg[@version]"};
     c.examples = {

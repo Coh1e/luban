@@ -70,7 +70,7 @@ void register_run() {
     cli::Subcommand c;
     c.name = "run";
     c.help = "run a luban-managed exe with toolchain env injected (uv-style)";
-    c.group = "utility";
+    c.group = "advanced";
     c.long_help =
         "  `luban run <cmd> [args...]` injects luban's toolchain env (PATH +\n"
         "  VCPKG_ROOT + vcpkg cache vars) into a child process and exec's the\n"
