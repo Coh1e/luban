@@ -30,13 +30,8 @@ struct Sandbox {
                ("luban-env-test-" + std::to_string(::time(nullptr)) + "-" +
                 std::to_string(reinterpret_cast<uintptr_t>(this)));
         fs::create_directories(root);
-#ifdef _WIN32
         ::_putenv_s("LUBAN_PREFIX", root.string().c_str());
         ::_putenv_s("USERPROFILE", root.string().c_str());
-#else
-        ::setenv("LUBAN_PREFIX", root.string().c_str(), 1);
-        ::setenv("HOME", root.string().c_str(), 1);
-#endif
     }
     ~Sandbox() {
         std::error_code ec;
@@ -113,7 +108,6 @@ TEST_CASE("env_snapshot::apply_to prepends path_dirs onto inherited PATH") {
     CHECK(out.count("VCPKG_DOWNLOADS"));
 }
 
-#ifdef _WIN32
 // HKCU round-trip — uses a unique var name so a failure mid-test can't
 // leave a recognizable name behind in the user's real environment. Even
 // so, we always unset on the way out (RAII) to keep the user's regedit
@@ -134,4 +128,3 @@ TEST_CASE("win_path set_user_env / get_user_env / unset_user_env round-trip") {
     REQUIRE(luban::win_path::unset_user_env(kVar));
     CHECK_FALSE(luban::win_path::get_user_env(kVar).has_value());
 }
-#endif

@@ -32,13 +32,8 @@ struct Sandbox {
         // Park cwd outside any luban project so the project tier stays out
         // of build() unless a test deliberately opts in.
         fs::current_path(root, ec);
-#ifdef _WIN32
         ::_putenv_s("LUBAN_PREFIX", root.string().c_str());
         ::_putenv_s("USERPROFILE", root.string().c_str());
-#else
-        ::setenv("LUBAN_PREFIX", root.string().c_str(), 1);
-        ::setenv("HOME", root.string().c_str(), 1);
-#endif
     }
     ~Sandbox() {
         std::error_code ec;

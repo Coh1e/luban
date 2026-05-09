@@ -46,20 +46,12 @@ public:
 
 private:
     void set(const std::string& v) {
-#ifdef _WIN32
         _putenv_s(name_, v.c_str());
-#else
-        setenv(name_, v.c_str(), 1);
-#endif
     }
     void unset() {
-#ifdef _WIN32
         // Windows: empty value = unset for the purposes of from_env, since
         // raw_env's GetEnvironmentVariableW returns 0 length for "".
         _putenv_s(name_, "");
-#else
-        unsetenv(name_);
-#endif
     }
     const char* name_;
     bool had_prev_ = false;
@@ -258,7 +250,6 @@ TEST_CASE("paths::all_dirs includes the four homes and key sub-dirs") {
 
 // ---- same_volume (Win32-specific behavior) ----------------------------------
 
-#ifdef _WIN32
 TEST_CASE("paths::same_volume: same drive letter → true") {
     CHECK(luban::paths::same_volume("C:/foo/bar", "C:/baz"));
 }
@@ -272,4 +263,3 @@ TEST_CASE("paths::same_volume: case-insensitive root comparison") {
     // are the same volume.
     CHECK(luban::paths::same_volume("c:/foo", "C:/bar"));
 }
-#endif

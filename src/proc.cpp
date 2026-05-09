@@ -1,25 +1,18 @@
+// Windows-only subprocess runner. v1.0.5+ dropped the POSIX fork/exec
+// fallback (DESIGN §1 Windows-first; luban targets fresh Win11 boxes,
+// not Linux/macOS).
+
 #include "proc.hpp"
 
 #include <cstdlib>
 #include <sstream>
 
-#ifdef _WIN32
 #include <windows.h>
 #include "util/win.hpp"
-#else
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <cerrno>
-#include <cstring>
-extern char** environ;
-#endif
 
 namespace luban::proc {
 
 namespace {
-
-#ifdef _WIN32
 
 // Quote a single argv element per CommandLineToArgvW rules. Sufficient for
 // our usage (cmake/clang invocations).
@@ -92,8 +85,6 @@ std::wstring build_env_block(const std::map<std::string, std::string>& overrides
     return block;
 }
 
-#endif
-
 }  // namespace
 
 int run(const std::vector<std::string>& cmd,
@@ -101,7 +92,6 @@ int run(const std::vector<std::string>& cmd,
         const std::map<std::string, std::string>& env_overrides) {
     if (cmd.empty()) return -1;
 
-#ifdef _WIN32
     std::wstring cmdline = build_cmdline(cmd);
     std::wstring env_block = build_env_block(env_overrides);
     std::wstring wcwd = win::from_utf8(cwd);
@@ -133,48 +123,6 @@ int run(const std::vector<std::string>& cmd,
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return static_cast<int>(code);
-#else
-    // POSIX path: fork + chdir + apply env overrides + execvp + wait.
-    // Uses posix_spawn-style direct fork/exec — single-threaded, simpler than spawn.
-    pid_t pid = fork();
-    if (pid < 0) return -1;
-
-    if (pid == 0) {
-        // child
-        if (!cwd.empty()) {
-            if (chdir(cwd.c_str()) != 0) {
-                std::fprintf(stderr, "luban: chdir(%s) failed: %s\n",
-                             cwd.c_str(), std::strerror(errno));
-                _exit(127);
-            }
-        }
-        // Apply env overrides on top of inherited env. Simple model: setenv
-        // each key. Doesn't unset keys not in overrides — caller can pass
-        // empty value to clear if needed (we don't use that semantic today).
-        for (auto& [k, v] : env_overrides) {
-            setenv(k.c_str(), v.c_str(), /*overwrite=*/1);
-        }
-        // build argv (NULL-terminated)
-        std::vector<char*> argv;
-        argv.reserve(cmd.size() + 1);
-        for (auto& s : cmd) argv.push_back(const_cast<char*>(s.c_str()));
-        argv.push_back(nullptr);
-        execvp(argv[0], argv.data());
-        // execvp returned → failed
-        std::fprintf(stderr, "luban: execvp(%s) failed: %s\n",
-                     argv[0], std::strerror(errno));
-        _exit(127);
-    }
-
-    // parent: wait
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return -1;
-    }
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
-    return -1;
-#endif
 }
 
 }  // namespace luban::proc

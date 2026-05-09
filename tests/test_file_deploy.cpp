@@ -40,15 +40,10 @@ struct Sandbox {
         fs::create_directories(root);
         // LUBAN_PREFIX redirects all four XDG homes under <prefix>/<role>.
         // paths.cpp respects it (see paths::data_dir() and friends).
-#ifdef _WIN32
         ::_putenv_s("LUBAN_PREFIX", root.string().c_str());
-        // For ~/ expansion we also need HOME / USERPROFILE to land inside
+        // For ~/ expansion we also need USERPROFILE to land inside
         // the sandbox so stray writes don't escape.
         ::_putenv_s("USERPROFILE", root.string().c_str());
-#else
-        ::setenv("LUBAN_PREFIX", root.string().c_str(), 1);
-        ::setenv("HOME", root.string().c_str(), 1);
-#endif
     }
     ~Sandbox() {
         std::error_code ec;

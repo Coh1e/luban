@@ -5,15 +5,9 @@
 namespace luban::platform {
 
 std::string_view host_os() {
-#ifdef _WIN32
+    // luban is Windows-only as of v1.0.5 (DESIGN §1; CMakeLists.txt
+    // refuses to configure on non-Windows).
     return "windows";
-#elif defined(__APPLE__)
-    return "macos";
-#elif defined(__linux__)
-    return "linux";
-#else
-    return "unknown";
-#endif
 }
 
 std::string_view host_arch() {

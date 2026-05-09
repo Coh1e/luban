@@ -468,21 +468,23 @@ Ayu Mirage theme
 
 ## 9. 下载与单二进制
 
-luban 初次安装不必须依赖 install.sh / install.ps1。
+luban 初次安装不必须依赖 install.ps1。
 
 用户可以手动下载 luban.exe。
-之后 luban 自己具备下载能力。
+之后 luban 自己具备下载能力（curl.exe subprocess，Win10 1803+ 自带）。
 
 实现目标：
 
 ```text
-单二进制
+单二进制（MSVC /MT 静态链）
 零 UAC
-不依赖 host curl/wget/git
+不依赖 host wget / git
 下载语义由 luban 自己提供
 ```
 
-POSIX 以后再做，但设计上不依赖宿主机 curl/OpenSSL 能力。
+POSIX 不做（v1.0.5）。luban 是 Windows-first 的工坊启动器（§1）；
+macOS / Linux 用户 brew / apt / nix 的 C++ 工具链体验已经足够好，
+luban 不去填那个不存在的洞。
 
 ------
 

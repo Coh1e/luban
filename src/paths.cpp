@@ -4,25 +4,12 @@
 #include <cstdlib>
 #include <vector>
 
-#ifdef _WIN32
 #include <shlobj.h>
 #include "util/win.hpp"
-#endif
 
 namespace luban::paths {
 
 namespace {
-
-#if defined(_WIN32)
-constexpr bool kIsWindows = true;
-constexpr bool kIsMacOS = false;
-#elif defined(__APPLE__)
-constexpr bool kIsWindows = false;
-constexpr bool kIsMacOS = true;
-#else
-constexpr bool kIsWindows = false;
-constexpr bool kIsMacOS = false;
-#endif
 
 std::string trim(std::string s) {
     auto not_space = [](unsigned char c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
@@ -32,7 +19,6 @@ std::string trim(std::string s) {
 }
 
 std::optional<std::string> raw_env(std::string_view var) {
-#ifdef _WIN32
     // GetEnvironmentVariableW: handles unicode env values, no MSVC _dupenv_s warning.
     std::wstring wname = win::from_utf8(var);
     DWORD n = GetEnvironmentVariableW(wname.c_str(), nullptr, 0);
@@ -42,12 +28,6 @@ std::optional<std::string> raw_env(std::string_view var) {
     if (got == 0) return std::nullopt;
     buf.resize(got);
     return win::to_utf8(buf);
-#else
-    std::string name(var);
-    const char* v = std::getenv(name.c_str());
-    if (!v) return std::nullopt;
-    return std::string(v);
-#endif
 }
 
 // Expand ~ at the start. Mirrors Path.expanduser() — only literal "~" or "~/...".
@@ -64,7 +44,6 @@ std::optional<fs::path> luban_prefix(std::string_view role) {
     return *p / std::string(role);
 }
 
-#ifdef _WIN32
 fs::path known_folder(REFKNOWNFOLDERID id) {
     PWSTR raw = nullptr;
     if (SHGetKnownFolderPath(id, 0, nullptr, &raw) == S_OK && raw) {
@@ -75,28 +54,22 @@ fs::path known_folder(REFKNOWNFOLDERID id) {
     if (raw) CoTaskMemFree(raw);
     return home() / "AppData" / "Local";  // last-ditch fallback
 }
-#endif
 
 fs::path localappdata() {
     auto v = from_env("LOCALAPPDATA");
     if (v) return *v;
-#ifdef _WIN32
     return known_folder(FOLDERID_LocalAppData);
-#else
-    return home() / "AppData" / "Local";
-#endif
 }
 
+// XDG-first fallback ladder: LUBAN_PREFIX → XDG_*_HOME → Windows default.
+// Linux/macOS defaults are gone post-v1.0.5 (DESIGN §1 Windows-first), but
+// XDG_*_HOME stays honored — power users override it on Windows too.
 fs::path resolve(std::string_view role,
                  std::string_view xdg_var,
-                 const fs::path& linux_default,
-                 const fs::path& macos_default,
                  const fs::path& windows_fallback) {
     if (auto p = luban_prefix(role)) return *p;
     if (auto p = from_env(xdg_var)) return *p / std::string(APP_NAME);
-    if constexpr (kIsMacOS) return macos_default;
-    if constexpr (kIsWindows) return windows_fallback;
-    return linux_default;
+    return windows_fallback;
 }
 
 }  // namespace
@@ -110,49 +83,35 @@ std::optional<fs::path> from_env(std::string_view var) {
 }
 
 fs::path home() {
-#ifdef _WIN32
     auto userprofile = raw_env("USERPROFILE");
     if (userprofile && !userprofile->empty()) return fs::path(*userprofile);
     auto drive = raw_env("HOMEDRIVE");
     auto path = raw_env("HOMEPATH");
     if (drive && path) return fs::path(*drive + *path);
     return known_folder(FOLDERID_Profile);
-#else
-    auto h = raw_env("HOME");
-    if (h && !h->empty()) return fs::path(*h);
-    return fs::path("/");
-#endif
 }
 
 fs::path data_dir() {
     return resolve("data", "XDG_DATA_HOME",
-                   home() / ".local" / "share" / std::string(APP_NAME),
-                   home() / "Library" / "Application Support" / std::string(APP_NAME),
                    localappdata() / std::string(APP_NAME));
 }
 
 fs::path cache_dir() {
     return resolve("cache", "XDG_CACHE_HOME",
-                   home() / ".cache" / std::string(APP_NAME),
-                   home() / "Library" / "Caches" / std::string(APP_NAME),
                    localappdata() / std::string(APP_NAME) / "Cache");
 }
 
 fs::path state_dir() {
     return resolve("state", "XDG_STATE_HOME",
-                   home() / ".local" / "state" / std::string(APP_NAME),
-                   home() / "Library" / "Application Support" / std::string(APP_NAME) / "State",
                    localappdata() / std::string(APP_NAME) / "State");
 }
 
 fs::path config_dir() {
-    // XDG_CONFIG_HOME on Linux. macOS uses Preferences. Windows: keep config
-    // local (was roaming before; roaming syncs across domain machines but
-    // installed.json is local — mismatch causes 're-install on every machine'
-    // surprises, and selection.json is no use without matching toolchains).
+    // Windows: keep config local (was roaming pre-v0.4; roaming syncs
+    // across domain machines but the registry/cache are local — mismatch
+    // causes 're-install on every machine' surprises). XDG_CONFIG_HOME
+    // override still honored.
     return resolve("config", "XDG_CONFIG_HOME",
-                   home() / ".config" / std::string(APP_NAME),
-                   home() / "Library" / "Preferences" / std::string(APP_NAME),
                    localappdata() / std::string(APP_NAME) / "Config");
 }
 
@@ -233,7 +192,6 @@ void ensure_dirs() {
 }
 
 bool same_volume(const fs::path& a, const fs::path& b) {
-#ifdef _WIN32
     // Plan §7: don't canonicalize — junction may resolve to a different drive
     // than the user-typed path. Compare root_name() of the literal paths.
     auto root = [](const fs::path& p) {
@@ -243,13 +201,6 @@ bool same_volume(const fs::path& a, const fs::path& b) {
         return s;
     };
     return root(a) == root(b);
-#else
-    std::error_code ec;
-    auto sa = fs::status(a, ec);
-    auto sb = fs::status(b, ec);
-    if (ec) return false;
-    return sa.permissions() == sa.permissions();  // POSIX dev compare omitted; M2 covers it.
-#endif
 }
 
 }  // namespace luban::paths

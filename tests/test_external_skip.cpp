@@ -26,11 +26,7 @@ struct Sandbox {
                ("luban-extskip-test-" + std::to_string(::time(nullptr)) + "-" +
                 std::to_string(reinterpret_cast<uintptr_t>(this)));
         fs::create_directories(root);
-#ifdef _WIN32
         ::_putenv_s("LUBAN_PREFIX", root.string().c_str());
-#else
-        ::setenv("LUBAN_PREFIX", root.string().c_str(), 1);
-#endif
     }
     ~Sandbox() {
         std::error_code ec;
@@ -105,7 +101,6 @@ TEST_CASE("probe returns nullopt for nonexistent tool") {
     CHECK_FALSE(r.has_value());
 }
 
-#ifdef _WIN32
 TEST_CASE("probe finds cmd.exe (Windows always has this)") {
     Sandbox sb;
     auto r = ext::probe("cmd");
@@ -116,7 +111,6 @@ TEST_CASE("probe finds cmd.exe (Windows always has this)") {
     for (auto& c : stem) c = static_cast<char>(::tolower(c));
     CHECK(stem == "cmd");
 }
-#endif
 
 TEST_CASE("write + read preserves schema field") {
     Sandbox sb;

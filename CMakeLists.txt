@@ -1,14 +1,24 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 1.0.4
+    VERSION 1.0.5
     LANGUAGES CXX C)
 
+# Windows-only target (DESIGN §1; v1.0.5 dropped POSIX support entirely).
+# Refuse to configure on non-Windows hosts — keeps the error early and
+# loud rather than letting a partial build limp into a confusing link
+# failure.
+if(NOT WIN32)
+    message(FATAL_ERROR
+        "luban targets Windows only as of v1.0.5 (DESIGN §1 Windows-first). "
+        "POSIX builds were removed; macOS / Linux users have brew / apt / nix "
+        "with first-class C++ tooling already.")
+endif()
+
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
-# has no msvcp140.dll / vcruntime140.dll dependency. Matches the MinGW
-# branch's `-static -static-libgcc -static-libstdc++` policy and keeps
-# invariant 7 ("luban.exe must be static-linked — fresh Win10 + no PATH
-# is enough to run") true for both compilers. CI ships MSVC builds via
-# windows-latest, so this matters for release artifacts.
+# has no msvcp140.dll / vcruntime140.dll dependency. Keeps invariant 7
+# ("luban.exe must be static-linked — fresh Win10 + no PATH is enough
+# to run") true on the canonical CI flavor. clang/MinGW dev builds use
+# `-static` link_options below for the same effect.
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -102,7 +112,7 @@ set(LUBAN_SOURCES
     src/win_path.cpp
     src/hash.cpp
     src/download.cpp
-    $<$<PLATFORM_ID:Windows>:src/curl_subprocess.cpp>
+    src/curl_subprocess.cpp
     src/archive.cpp
     src/luban_toml.cpp
     src/vcpkg_manifest.cpp
@@ -174,66 +184,39 @@ else()
     set_source_files_properties(${LUA54_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
-if(WIN32)
-    # Win32 APIs used: SHGetKnownFolderPath (shell32), CoTaskMemFree (ole32),
-    # GetEnvironmentVariableW / CreateProcessW / GetStdHandle / SetConsoleMode (kernel32),
-    # RegOpenKeyExW / RegQueryValueExW / RegSetValueExW (advapi32),
-    # SendMessageTimeoutW (user32).
-    # winhttp removed in v0.3.0 — Win32 download path uses curl.exe subprocess
-    # (src/curl_subprocess.cpp). bcrypt stays for hash.cpp's BCryptHash*.
-    target_link_libraries(luban PRIVATE shell32 ole32 advapi32 user32 bcrypt)
-    target_compile_definitions(luban PRIVATE
-        UNICODE
-        _UNICODE
-        WIN32_LEAN_AND_MEAN
-        NOMINMAX
-    )
-    # Static link on Windows so luban.exe runs on a fresh Win10 box with no PATH
-    # (no DLL dependency on libc++/libunwind/libwinpthread). On POSIX this is
-    # famously hard (glibc) and unnecessary — packagers expect dynamic libc.
-    if(NOT MSVC)
-        target_link_options(luban PRIVATE -static -static-libgcc -static-libstdc++)
-    endif()
-else()
-    # POSIX:
-    # - download.cpp uses std::thread (chunked Range downloads) → pthread.
-    # - hash.cpp uses OpenSSL EVP for sha256/sha512/sha1/md5 (ADR-0006
-    #   Phase B). System libssl is the pragmatic choice — Ubuntu/Debian/
-    #   Fedora/Homebrew all ship it.
-    # - download.cpp uses libcurl for HTTP on POSIX (ADR-0006 Phase B
-    #   half 2). Same system-lib reasoning as OpenSSL — every distro
-    #   ships it, and libcurl is the de-facto C HTTP client.
-    find_package(Threads REQUIRED)
-    find_package(OpenSSL REQUIRED)
-    find_package(CURL REQUIRED)
-    target_link_libraries(luban PRIVATE Threads::Threads OpenSSL::Crypto CURL::libcurl)
-    # Lua's loadlib.c uses dlopen/dlclose on POSIX (libdl).
-    # Lua's lmathlib.c uses libm (math).
-    target_link_libraries(luban PRIVATE ${CMAKE_DL_LIBS} m)
+# Win32 APIs used: SHGetKnownFolderPath (shell32), CoTaskMemFree (ole32),
+# GetEnvironmentVariableW / CreateProcessW / GetStdHandle / SetConsoleMode (kernel32),
+# RegOpenKeyExW / RegQueryValueExW / RegSetValueExW (advapi32),
+# SendMessageTimeoutW (user32).
+# winhttp removed in v0.3.0 — download path uses curl.exe subprocess
+# (src/curl_subprocess.cpp). bcrypt stays for hash.cpp's BCryptHash*.
+target_link_libraries(luban PRIVATE shell32 ole32 advapi32 user32 bcrypt)
+target_compile_definitions(luban PRIVATE
+    UNICODE
+    _UNICODE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+)
+# Static link so luban.exe runs on a fresh Win10 box without DLL deps
+# (libc++ / libunwind / libwinpthread). MSVC achieves this via
+# CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded above; clang/MinGW needs
+# explicit -static linker flags here.
+if(NOT MSVC)
+    target_link_options(luban PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 # ---- luban-shim.exe : tiny native exe proxy (rustup-style) ----
 # Hard-linked into <data>/bin/<alias>.exe for every alias. Reads its own
 # filename + .shim-table.json sibling to discover target exe, then
 # CreateProcessW. Static-linked, ~200 KB.
-#
-# Windows-only: the shim model exists because PATH alias resolution on
-# Windows requires a real .exe (search picks the first .exe matching name,
-# .cmd shims are ignored by tools that use CreateProcess directly). On
-# POSIX, alias resolution via PATH already works for plain symlinks, so
-# luban-shim.exe is unneeded — see docs/DESIGN.md §23 (POSIX port phases).
-if(WIN32)
-    add_executable(luban-shim src/shim_exe/main.cpp)
-    target_include_directories(luban-shim PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
-
-    if(NOT MSVC)
-        target_compile_options(luban-shim PRIVATE -Wall -Wextra)
-        target_link_options(luban-shim PRIVATE -static -static-libgcc -static-libstdc++)
-    endif()
-
-    target_compile_definitions(luban-shim PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-    target_link_libraries(luban-shim PRIVATE shell32)
+add_executable(luban-shim src/shim_exe/main.cpp)
+target_include_directories(luban-shim PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+if(NOT MSVC)
+    target_compile_options(luban-shim PRIVATE -Wall -Wextra)
+    target_link_options(luban-shim PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
+target_compile_definitions(luban-shim PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(luban-shim PRIVATE shell32)
 
 # ---- luban-tests : doctest unit tests (ADR-0004) ----
 # EXCLUDE_FROM_ALL so default `cmake --build` doesn't compile tests; opt in
@@ -346,21 +329,12 @@ if(LUBAN_BUILD_TESTS)
     else()
         target_compile_options(luban-tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
     endif()
-    if(WIN32)
-        target_link_libraries(luban-tests PRIVATE shell32 ole32 advapi32 bcrypt)
-        target_compile_definitions(luban-tests PRIVATE
-            UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-        if(NOT MSVC)
-            # Static-link on Windows for portability across runners
-            # (CI image, dev shells via git-bash) without DLL discovery.
-            target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
-        endif()
-    else()
-        # POSIX: same Threads + OpenSSL deps as the luban target. luban-tests
-        # links src/hash.cpp which now uses EVP_* on POSIX, so it needs the
-        # same crypto lib at link time. Lua needs libdl + libm.
-        find_package(Threads REQUIRED)
-        find_package(OpenSSL REQUIRED)
-        target_link_libraries(luban-tests PRIVATE Threads::Threads OpenSSL::Crypto ${CMAKE_DL_LIBS} m)
+    target_link_libraries(luban-tests PRIVATE shell32 ole32 advapi32 bcrypt)
+    target_compile_definitions(luban-tests PRIVATE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+    if(NOT MSVC)
+        # Static-link for portability across runners (CI image, dev
+        # shells via git-bash) without DLL discovery.
+        target_link_options(luban-tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
 endif()

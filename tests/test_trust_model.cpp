@@ -49,13 +49,8 @@ struct Sandbox {
                ("luban-trust-" + std::to_string(::time(nullptr)) + "-" +
                 std::to_string(reinterpret_cast<uintptr_t>(this)));
         fs::create_directories(root);
-#ifdef _WIN32
         ::_putenv_s("LUBAN_PREFIX", root.string().c_str());
         ::_putenv_s("USERPROFILE", root.string().c_str());
-#else
-        ::setenv("LUBAN_PREFIX", root.string().c_str(), 1);
-        ::setenv("HOME", root.string().c_str(), 1);
-#endif
     }
     ~Sandbox() {
         std::error_code ec;

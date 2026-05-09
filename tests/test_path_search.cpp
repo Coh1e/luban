@@ -32,21 +32,12 @@ struct PathFixture {
         fs::create_directories(dir);
         const char* p = std::getenv("PATH");
         saved_path = p ? p : "";
-#ifdef _WIN32
         std::string augmented = dir.string() + ";" + saved_path;
         _putenv_s("PATH", augmented.c_str());
-#else
-        std::string augmented = dir.string() + ":" + saved_path;
-        setenv("PATH", augmented.c_str(), 1);
-#endif
     }
 
     ~PathFixture() {
-#ifdef _WIN32
         _putenv_s("PATH", saved_path.c_str());
-#else
-        setenv("PATH", saved_path.c_str(), 1);
-#endif
         std::error_code ec;
         fs::remove_all(dir, ec);
     }
@@ -66,25 +57,19 @@ TEST_CASE("path_search::on_path returns nullopt for a non-existent tool") {
 
 TEST_CASE("path_search::on_path finds an exact-name file in PATH") {
     PathFixture fix;
-#ifdef _WIN32
     // SearchPathW on Windows requires an extension to match. The empty
     // string is the last fallback, but it's not what real cmd executables
     // look like — use .exe which is the typical hit.
     fix.touch("luban-test-tool.exe");
     auto p = luban::path_search::on_path("luban-test-tool");
-#else
-    fix.touch("luban-test-tool");
-    auto p = luban::path_search::on_path("luban-test-tool");
-#endif
     REQUIRE(p.has_value());
     CHECK(p->filename().string().find("luban-test-tool") != std::string::npos);
 }
 
-#ifdef _WIN32
-TEST_CASE("path_search::on_path on Windows tries .cmd / .bat / .com extensions") {
-    // Windows-only: a luban shim is `.cmd`. SearchPathW alone (with no
-    // PATHEXT awareness for bare names) would skip it; on_path iterates
-    // explicit extensions to catch it.
+TEST_CASE("path_search::on_path tries .cmd / .bat / .com extensions") {
+    // luban shims are `.cmd`. SearchPathW alone (with no PATHEXT awareness
+    // for bare names) would skip them; on_path iterates explicit
+    // extensions to catch them.
     PathFixture fix;
     fix.touch("luban-shim-test.cmd");
     auto p = luban::path_search::on_path("luban-shim-test");
@@ -92,7 +77,7 @@ TEST_CASE("path_search::on_path on Windows tries .cmd / .bat / .com extensions")
     CHECK(p->extension().string() == ".cmd");
 }
 
-TEST_CASE("path_search::on_path on Windows prefers .exe over .cmd when both exist") {
+TEST_CASE("path_search::on_path prefers .exe over .cmd when both exist") {
     // Iteration order in path_search.cpp is .exe → .cmd → .bat → .com → "".
     // If both are present, the first match wins (which matches real cmd
     // resolution behaviour).
@@ -103,7 +88,6 @@ TEST_CASE("path_search::on_path on Windows prefers .exe over .cmd when both exis
     REQUIRE(p.has_value());
     CHECK(p->extension().string() == ".exe");
 }
-#endif
 
 TEST_CASE("path_search::on_path_str empty string on miss") {
     // Convenience wrapper used by doctor.cpp; mirrors the legacy
