@@ -16,10 +16,6 @@
 # target dir; the installer never elevates and never writes outside it.
 # Set $env:LUBAN_FORCE_REINSTALL=1 to force redownload even when SHAs match.
 #
-# Flavor: each release ships TWO Windows binaries — MSVC (smaller, ~3 MB,
-# default) and LLVM-MinGW (larger, ~6 MB, traditional luban toolchain).
-# Both are static-linked. Pick MinGW with $env:LUBAN_FLAVOR='mingw'.
-#
 # Slow VN / CN network? Set $env:LUBAN_GITHUB_MIRROR_PREFIX before running:
 #     $env:LUBAN_GITHUB_MIRROR_PREFIX = 'https://ghfast.top'
 #     irm https://ghfast.top/https://github.com/Coh1e/luban/raw/main/install.ps1 | iex
@@ -44,18 +40,6 @@ if (Test-Path $installDir) {
 }
 
 $forceReinstall = [bool]$env:LUBAN_FORCE_REINSTALL
-
-# ---- flavor selection ------------------------------------------------------
-$flavor = if ($env:LUBAN_FLAVOR) { $env:LUBAN_FLAVOR.ToLowerInvariant() } else { 'msvc' }
-if ($flavor -ne 'msvc' -and $flavor -ne 'mingw') {
-    throw "LUBAN_FLAVOR must be 'msvc' or 'mingw' (got '$flavor')"
-}
-# Map flavor to release-asset names. The on-disk name is always luban.exe /
-# luban-shim.exe regardless of flavor — downstream tooling probes for
-# `luban.exe` literally; suffix only lives in the release artifact name.
-$assetLuban = "luban-$flavor.exe"
-$assetShim  = "luban-shim-$flavor.exe"
-Write-Host "→ flavor: $flavor"
 
 # ---- mirror prefix (slow VN / CN networks) ---------------------------------
 # Set LUBAN_GITHUB_MIRROR_PREFIX to a reverse-proxy URL prefix to bounce all
@@ -255,9 +239,8 @@ function Test-Already-Installed($localName, $assetName) {
 }
 
 # Download $assetName from the release and install it as $localName in
-# $installDir. The flavor suffix is in the release-asset name only;
-# on-disk we always write `luban.exe` / `luban-shim.exe` so PATH probes
-# resolve uniformly.
+# $installDir. v1.0.5+ ships single-flavor MSVC; release-asset name and
+# on-disk name match (`luban.exe`, `luban-shim.exe`).
 function Install-Asset($localName, $assetName) {
     if ((-not $forceReinstall) -and (Test-Already-Installed $localName $assetName)) {
         Write-Host "  $localName already installed (SHA256 matches $assetName) — skipping"
@@ -278,8 +261,8 @@ function Install-Asset($localName, $assetName) {
     Write-Host "  installed → $target"
 }
 
-Install-Asset 'luban.exe'      $assetLuban
-Install-Asset 'luban-shim.exe' $assetShim
+Install-Asset 'luban.exe'      'luban.exe'
+Install-Asset 'luban-shim.exe' 'luban-shim.exe'
 
 # ---- HKCU PATH integration (best-effort, prompted) -------------------------
 # Read HKCU PATH directly (not $env:Path which is process-merged user+system),

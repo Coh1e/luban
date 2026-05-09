@@ -192,7 +192,7 @@ third_party/                   # 单 header vendored libs + lua54/
   lua54/                       # 60 .c/.h（唯一多文件破例）
 
 docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements)
-.github/workflows/build.yml    # windows MSVC + MinGW dual-build, tag→release
+.github/workflows/build.yml    # single windows MSVC build, tag→release
 ```
 
 ## Don't break these (不变量；详 DESIGN §2 北极星)
@@ -305,34 +305,25 @@ sed -i "s|VERSION [0-9.]*|VERSION X.Y.Z|" CMakeLists.txt
 cmake --build --preset release
 build\release\luban.exe --version
 
-:: tag + push — CI does the dual-flavor release
+:: tag + push — CI does the build + release
 git commit -am "Bump X.Y.Z" && git push
 git tag -a vX.Y.Z -m "luban X.Y.Z — ..." && git push --tags
 ```
 
-**Release flavors**: every release ships TWO Windows binaries, both
-static-linked (invariant 7 holds for either). `.github/workflows/build.yml`
-runs the two builds in parallel and a third job stitches them into a single
-GitHub release.
+**Release**: single MSVC build per tag (DESIGN §1 Windows-first;
+v1.0.5+ dropped the LLVM-MinGW flavor). `/MT` runtime → static-linked,
+invariant 7 enforced.
 
-| asset                  | toolchain                   | size    | when to pick                                                                                              |
-| ---------------------- | --------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `luban-msvc.exe`       | windows-latest cl /MT       | ~3 MB   | **default**. Smaller binary; fastest startup; no MinGW dependency on the dev box.                         |
-| `luban-shim-msvc.exe`  | -                           | ~150 KB | shim twin for MSVC luban                                                                                  |
-| `luban-mingw.exe`      | llvm-mingw 20260421 -static | ~6 MB   | legacy / portability fallback. Same toolchain `cpp-toolchain` installs, so dev/release are bit-identical. |
-| `luban-shim-mingw.exe` | -                           | ~600 KB | shim twin for MinGW luban                                                                                 |
-| `SHA256SUMS`           | -                           | -       | covers all 4 binaries                                                                                     |
+| asset             | toolchain               | size    | notes                          |
+| ----------------- | ----------------------- | ------- | ------------------------------ |
+| `luban.exe`       | windows-latest cl /MT   | ~3 MB   | the binary                     |
+| `luban-shim.exe`  | windows-latest cl /MT   | ~150 KB | shim twin for `.exe` PATH proxies |
+| `SHA256SUMS`      | -                       | -       | sha256 for both binaries       |
 
-`install.ps1` defaults to msvc; users who want the MinGW flavor set
-`$env:LUBAN_FLAVOR='mingw'` before invoking. On disk both flavors land
-as `luban.exe` / `luban-shim.exe` (suffix only lives in the release
-asset name) so downstream `.cmd` / `.exe` PATH probes resolve uniformly.
-
-CI verifies invariant 7 on both flavors:
-
-- MSVC: `dumpbin /DEPENDENTS` rejects vcruntime / msvcp / api-ms-win-crt
-- MinGW: `llvm-readobj --coff-imports` rejects libgcc_s / libstdc++ /
-  libc++ / vcruntime / msvcp
+CI verifies invariant 7: `dumpbin /DEPENDENTS` rejects vcruntime / msvcp /
+api-ms-win-crt. Build job is `.github/workflows/build.yml` → single
+`build` job that uploads release artifacts directly when triggered by
+a `v*.*.*` tag push.
 
 ## User-facing env vars
 
@@ -342,9 +333,8 @@ CI verifies invariant 7 on both flavors:
 | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `LUBAN_INSTALL_DIR`          | `~/.local/bin`         | install.ps1 安装目标目录                                                                                                                                            |
 | `LUBAN_FORCE_REINSTALL`      | unset                  | =1 时 install.ps1 跳过 SHA-命中短路                                                                                                                                  |
-| `LUBAN_FLAVOR`               | `msvc`                 | release 选哪个 flavor (`msvc` \| `mingw`)                                                                                                                        |
 | `LUBAN_GITHUB_MIRROR_PREFIX` | unset                  | 反代 prefix（如 `https://ghfast.top`），重写 `github.com` / `*.githubusercontent.com` URL；**不**重写 `api.github.com`（公共 mirror 都 403 它）。注意 ghfast.top 限速严格，VN 网络下直连可能更快 |
-| `LUBAN_EXTRACT_THREADS`      | min(8, hw_concurrency) | archive::extract worker 数（0 = 单线程）。llvm-mingw 测 4 路对单流 ~5× 加速，超过 ~8 SSD 写饱和无意义                                                                                |
+| `LUBAN_EXTRACT_THREADS`      | min(8, hw_concurrency) | archive::extract worker 数（0 = 单线程）。llvm-mingw bundle 测 4 路对单流 ~5× 加速，超过 ~8 SSD 写饱和无意义                                                                          |
 | `LUBAN_PROGRESS`             | unset                  | =1 强制开 progress bar（非 TTY 也开）                                                                                                                                 |
 | `LUBAN_NO_PROGRESS`          | unset                  | =1 关 progress bar                                                                                                                                             |
 
