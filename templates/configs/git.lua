@@ -36,6 +36,16 @@
 
 local M = {}
 
+-- DESIGN §4/§7 capability declaration (read by lua_frontend::extract_capability).
+-- Drop-in target only — the canonical ~/.gitconfig is never touched; users
+-- must `[include]` ~/.gitconfig.d/ themselves (one-time, printed on first apply).
+M.capability = {
+  writable_dirs   = { "~/.gitconfig.d/" },
+  overwrite       = false,
+  needs_confirm   = false,
+  touches_profile = false,
+}
+
 function M.target_path(cfg, ctx)
   return ctx.home .. "/.gitconfig.d/" .. ctx.blueprint_name .. ".gitconfig"
 end

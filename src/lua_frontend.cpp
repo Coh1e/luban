@@ -180,7 +180,8 @@ std::expected<bpl::LockedPlatform, std::string> walk_resolver_result(
 }  // namespace
 
 luban::render_types::RendererFns wrap_renderer_module(
-    lua_State* L, int target_path_ref, int render_ref) {
+    lua_State* L, int target_path_ref, int render_ref,
+    luban::render_types::Capability cap) {
     auto tp_holder = std::make_shared<LuaRef>(L, target_path_ref);
     auto r_holder = std::make_shared<LuaRef>(L, render_ref);
 
@@ -195,6 +196,47 @@ luban::render_types::RendererFns wrap_renderer_module(
         return call_renderer_ref(r_holder->L, r_holder->ref,
                                   "render", cfg, ctx);
     };
+    out.capability = std::move(cap);
+    return out;
+}
+
+luban::render_types::Capability extract_capability(lua_State* L, int module_idx) {
+    luban::render_types::Capability out;  // declared=false until proven otherwise
+
+    lua_getfield(L, module_idx, "capability");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return out;
+    }
+    int cap_idx = lua_gettop(L);
+    out.declared = true;
+
+    // writable_dirs: array of strings, optional.
+    lua_getfield(L, cap_idx, "writable_dirs");
+    if (lua_istable(L, -1)) {
+        int n = static_cast<int>(lua_rawlen(L, -1));
+        for (int i = 1; i <= n; ++i) {
+            lua_rawgeti(L, -1, i);
+            if (lua_isstring(L, -1)) {
+                size_t len = 0;
+                const char* s = lua_tolstring(L, -1, &len);
+                out.writable_dirs.emplace_back(s, len);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+
+    auto get_bool = [&](const char* key, bool& dst) {
+        lua_getfield(L, cap_idx, key);
+        if (lua_isboolean(L, -1)) dst = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+    };
+    get_bool("overwrite",       out.overwrite);
+    get_bool("needs_confirm",   out.needs_confirm);
+    get_bool("touches_profile", out.touches_profile);
+
+    lua_pop(L, 1);  // pop the capability table
     return out;
 }
 
@@ -245,9 +287,11 @@ wrap_embedded_module(lua_State* L, std::string_view module_source,
     }
     int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
+    // Module table is still on top — extract capability before popping.
+    auto cap = extract_capability(L, module_idx);
     lua_pop(L, 1);  // pop the module table; refs survive in REGISTRYINDEX.
 
-    return wrap_renderer_module(L, tp_ref, r_ref);
+    return wrap_renderer_module(L, tp_ref, r_ref, std::move(cap));
 }
 
 luban::resolver_types::ResolverFn wrap_resolver_fn(lua_State* L, int fn_ref) {

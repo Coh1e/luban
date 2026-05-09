@@ -20,6 +20,14 @@
 
 local M = {}
 
+-- DESIGN §4/§7 capability declaration (read by lua_frontend::extract_capability).
+M.capability = {
+  writable_dirs   = { "~/.gitconfig.d/" },
+  overwrite       = false,    -- per-bp drop-in, never the canonical .gitconfig
+  needs_confirm   = false,
+  touches_profile = false,
+}
+
 function M.target_path(_cfg, ctx)
   return ctx.home .. "/.gitconfig.d/" .. ctx.blueprint_name .. "-delta.gitconfig"
 end

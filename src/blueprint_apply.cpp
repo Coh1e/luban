@@ -20,9 +20,12 @@
 
 #include "blueprint_apply.hpp"
 
+#include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <sstream>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -34,6 +37,7 @@
 #include "platform.hpp"
 #include "proc.hpp"
 #include "config_renderer.hpp"
+#include "render_types.hpp"
 #include "renderer_registry.hpp"
 #include "source_resolver.hpp"
 #include "store.hpp"
@@ -133,12 +137,166 @@ const bpl::LockedPlatform* pick_platform(const bpl::LockedTool& t) {
     return &it->second;
 }
 
+/// Render the DESIGN §4 / §8 trust summary to stdout: tools to fetch /
+/// external-skip, configs (with renderer-declared capability), files,
+/// post-install hooks, source officiality. Always prints; for non-
+/// official sources the first line is a red WARNING. Returns true when
+/// the apply may proceed (official, or user typed yes), false to abort.
+bool render_trust_summary_and_confirm(
+    const bp::BlueprintSpec& spec,
+    const bpl::BlueprintLock& lock,
+    const ApplyOptions& opts) {
+    using luban::log::red;
+    using luban::log::green;
+    using luban::log::yellow;
+
+    std::printf("\n");
+    if (opts.source_official) {
+        std::printf("%s — apply blueprint `%s`",
+                    green("trust summary").c_str(), spec.name.c_str());
+    } else {
+        std::printf("%s — apply blueprint `%s`",
+                    red("TRUST SUMMARY").c_str(), spec.name.c_str());
+    }
+    if (opts.dry_run) std::printf(" (%s)", yellow("dry-run").c_str());
+    std::printf("\n");
+
+    if (opts.bp_source_name.empty()) {
+        std::printf("  source     : (local / unknown)\n");
+    } else {
+        std::printf("  source     : %s%s\n",
+                    opts.bp_source_name.c_str(),
+                    opts.source_official ? "" : red("  [non-official]").c_str());
+    }
+    if (!spec.description.empty()) {
+        std::printf("  description: %s\n", spec.description.c_str());
+    }
+
+    // Tools: distinguish fetch vs external_skip vs unresolved.
+    if (!spec.tools.empty()) {
+        std::printf("  tools (%zu):\n", spec.tools.size());
+        for (auto& t : spec.tools) {
+            std::string probe = t.external_skip.value_or(t.name);
+            std::string note;
+            auto it = lock.tools.find(t.name);
+            if (it == lock.tools.end()) {
+                note = yellow("unresolved");
+            } else {
+                auto* plat = pick_platform(it->second);
+                note = plat ? plat->artifact_id : yellow("no platform for host");
+            }
+            std::printf("    - %s  (%s)\n", t.name.c_str(), note.c_str());
+            if (t.post_install) {
+                std::printf("        %s post_install: %s\n",
+                            yellow("!").c_str(), t.post_install->c_str());
+            }
+            if (t.external_skip) {
+                std::printf("        external_skip probe: %s\n", probe.c_str());
+            }
+        }
+    }
+
+    // Configs: surface renderer-declared capability when the registry has it.
+    if (!spec.configs.empty()) {
+        std::printf("  configs (%zu):\n", spec.configs.size());
+        for (auto& c : spec.configs) {
+            const std::string& renderer_name = c.for_tool.value_or(c.name);
+            const luban::render_types::RendererFns* fns = nullptr;
+            if (opts.renderer_registry) {
+                fns = opts.renderer_registry->find_native(renderer_name);
+            }
+            if (fns && fns->capability.declared) {
+                const auto& cap = fns->capability;
+                std::string flags;
+                if (cap.overwrite)       flags += " overwrite";
+                if (cap.needs_confirm)   flags += " " + red("confirm-required");
+                if (cap.touches_profile) flags += " " + red("touches-profile");
+                std::string dirs;
+                for (size_t i = 0; i < cap.writable_dirs.size(); ++i) {
+                    if (i) dirs += ", ";
+                    dirs += cap.writable_dirs[i];
+                }
+                if (dirs.empty()) dirs = "(none declared)";
+                std::printf("    - %s  writes: %s%s\n",
+                            c.name.c_str(), dirs.c_str(), flags.c_str());
+            } else {
+                std::printf("    - %s  %s\n",
+                            c.name.c_str(),
+                            yellow("(renderer capability undeclared)").c_str());
+            }
+        }
+    }
+
+    // Files: show mode + target. mode FileMode names map directly.
+    if (!spec.files.empty()) {
+        std::printf("  files (%zu):\n", spec.files.size());
+        for (auto& f : spec.files) {
+            const char* mode = "?";
+            switch (f.mode) {
+                case bp::FileMode::Replace: mode = "replace"; break;
+                case bp::FileMode::DropIn:  mode = "drop-in"; break;
+                case bp::FileMode::Merge:   mode = "merge";   break;
+                case bp::FileMode::Append:  mode = "append";  break;
+            }
+            std::printf("    - %s  (mode=%s)\n", f.target_path.c_str(), mode);
+        }
+    }
+
+    if (!spec.meta.requires_.empty()) {
+        std::printf("  requires   : ");
+        for (size_t i = 0; i < spec.meta.requires_.size(); ++i) {
+            if (i) std::printf(", ");
+            std::printf("%s", spec.meta.requires_[i].c_str());
+        }
+        std::printf("\n");
+    }
+    std::printf("\n");
+
+    // Decision logic:
+    //   official  → always proceed (DESIGN §8: default-trust, still show)
+    //   non-official + dry_run → proceed (no destructive effect)
+    //   non-official + --yes   → proceed (caller pre-confirmed)
+    //   non-official + interactive → prompt; n/empty/EOF abort
+    if (opts.source_official) return true;
+    if (opts.dry_run) {
+        std::printf("%s non-official source — dry-run proceeds without prompting.\n",
+                    yellow("Note:").c_str());
+        return true;
+    }
+    if (opts.yes) {
+        std::printf("%s non-official source — `--yes` skipped the prompt.\n",
+                    yellow("Note:").c_str());
+        return true;
+    }
+    std::printf("%s This bp source is %s. Apply will execute Lua\n",
+                red("!").c_str(), red("non-official").c_str());
+    std::printf("renderers and may run post-install scripts. Proceed only if\n");
+    std::printf("you trust the maintainer end-to-end.\n");
+    std::printf("\n");
+    std::printf("Continue? [y/N] ");
+    std::fflush(stdout);
+    std::string line;
+    if (!std::getline(std::cin, line)) return false;  // EOF = decline
+    for (char& c : line) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return line == "y" || line == "yes";
+}
+
 }  // namespace
 
 std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
                                               const bpl::BlueprintLock& lock,
                                               const ApplyOptions& opts) {
     ApplyResult result;
+
+    // ---- Trust summary (DESIGN §4 / §8) ----------------------------------
+    //
+    // Always show; for non-official sources also gate on consent unless
+    // --yes / --dry-run pre-authorised. Programmatic callers (tests,
+    // file-only fixtures) leave bp_source_name empty and source_official
+    // = true (default), so the prompt path never blocks them.
+    if (!render_trust_summary_and_confirm(spec, lock, opts)) {
+        return std::unexpected("apply aborted by user (non-official source declined)");
+    }
 
     // ---- Preflight: meta.requires gating (DESIGN §4) ---------------------
     //

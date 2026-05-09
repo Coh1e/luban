@@ -30,7 +30,7 @@ MVP 只做三件事：
 
 通过远端 blueprint snapshot 安装和配置 C++ 开发工坊。
 
-当前官方能力分三层：
+概念上分三层（但实际官方 bp 已合并打包，见下）：
 
 ```text
 bootstrap layer:
@@ -42,6 +42,17 @@ toolchain layer:
 
 workbench layer:
   fd / ripgrep / PowerShell 7 / psreadline / zoxide / starship / Windows Terminal 配置 / 字体与主题配置
+```
+
+实际官方 bp 表面（`Coh1e/luban-bps`）：
+
+```text
+bootstrap     bootstrap layer + toolchain layer 合并（mingit + gcm + lfs +
+              llvm-mingw + cmake + ninja + vcpkg）。两层在实际安装中没人
+              只装其一，分开只增加 UX 摩擦。
+
+onboarding    workbench layer + 字体 / WT 主题 / pwsh profile 全部并入。
+              requires bootstrap，apply 时自动按依赖顺序 trigger。
 ```
 
 说明：
@@ -280,18 +291,24 @@ run
 
 含义：
 
-- 创建最小 C++ 项目；
-- 添加/移除项目库依赖；
-- 调用 CMake 构建；
-- 运行默认 target 或指定 target 的构建产物。
-
-`run` 应按之前建议加入：
+- `new`：创建最小 C++ 项目；
+- `add` / `remove`：添加/移除项目库依赖（编辑 `vcpkg.json` + `luban.cmake`）；
+- `build`：调用 CMake 构建；
+- `run`：把 luban 的 toolchain env（PATH + VCPKG cache 等）注入子进程后
+  exec 任意命令（uv 风格透传）。`<cmd>` 在 luban-augmented PATH 上做
+  PATH 搜索；`<cmd>` 后所有参数原样转发给 `<cmd>`，luban 自己不解析。
+  适用场景：未跑 `luban env --user` 的 fresh shell / CI / 容器。
 
 ```text
-luban run
-luban run <target>
-luban run <target> -- args...
+luban run cmake --version
+luban run vcpkg list
+luban run clang -E -dM -x c nul
 ```
+
+历史注：v0.x 时设计的 `run` 是 build-artifact runner（"运行默认 target
+或指定 target 的构建产物"），但实际工程中 `cmake --build && ./build/...`
+已经覆盖该需求；v1.0 把 `run` 收敛为 PATH-augmented exec，给"luban 不
+长期占据 HKCU 但要 fresh shell 跑工具链"这个场景一个直接入口。
 
 ------
 
@@ -355,20 +372,25 @@ Windows SDK
 
 ### 6.2 单次会话 env 注入
 
-luban 提供动词把 `vcvarsall.bat` 产生的环境变量带入单次会话：
+luban 提供专用动词把 `vcvarsall.bat` 产生的环境变量带入单次会话：
 
 ```text
 luban msvc shell
 luban msvc run -- <cmd>
 ```
 
-或者统一收进 env/run 体系：
+`luban env --msvc-init [--arch x64]` 一次性捕获 vcvarsall 输出到
+`<state>/msvc-env.json`；之后 `luban msvc shell` / `msvc run` 读这份
+缓存把 ~30 个 INCLUDE / LIB / WindowsSdk* 等变量注入子进程；`luban env
+--user` 则把它们写入 HKCU（仅 PATH 第一项，避免 ~14 条 SDK 子目录污
+染用户 PATH）。
 
-```text
-luban run --msvc -- cmake --build build
-```
+走 `msvc` 专用动词而不是 `run --msvc`：MSVC env 是 ~30 条变量加 ~14 条
+PATH 项的大块结构，独立 verb 让 help 与 examples 一目了然，避免 `run`
+的 forward_rest 边界跟 `--msvc` flag 解析互绞。
 
-这些 env 不写入 HKCU，不污染全局用户环境。
+这些 env 不写入 HKCU（除非用户显式 `env --user`），不污染全局用户
+环境。
 
 ------
 
@@ -420,13 +442,27 @@ Ayu Mirage theme
 ```
 
 普通 GitHub source 默认信任上游，不在 MVP 做强 SHA256/签名验证。
-但 doctor 必须能指出：
+
+诊断责任分工（MVP）：
+
+`doctor` 报：
 
 ```text
-此 blueprint / tool 来源非官方
-此 tool 使用 TOFU / 未验证来源
-此 tool 来自 external skip
+此 blueprint / source 来源非官方
+此 tool 使用 TOFU / 未验证来源（lock 里 sha256 为空）
 ```
+
+`bp apply` 的 trust summary 报：
+
+```text
+此 tool 是 external_skip（probe target + 是否命中本机 PATH）
+此 config 的 renderer 声明的 capability（写哪些目录 / 是否覆盖 / ...）
+此 bp 的 post_install hook
+```
+
+外部 skip 的检测放在 apply 时而不是 doctor，是为了把 doctor 的链接面收
+窄到长期状态（sources.toml / lock 文件）；apply 已经持有完整的 spec，能
+逐 tool 报告 probe 命中情况，重复劳动反而稀释信号。
 
 ------
 

@@ -36,7 +36,21 @@ struct SourceEntry {
     std::string ref;       ///< branch / tag / sha; empty = repo default
     std::string commit;    ///< last-synced commit sha (or "tarball:<ts>")
     std::string added_at;  ///< ISO-8601 UTC of `bp source add`
+    /// True when the source URL points at a known-official owner
+    /// (DESIGN §8 trust model — official sources default-trust, still
+    /// show summary; non-official require explicit consent at apply
+    /// time and surface in `doctor`). Computed at `bp source add` time
+    /// from `url` via `is_official_url`. Persisted so future schema
+    /// changes to the official set don't silently re-classify already
+    /// registered sources.
+    bool official = false;
 };
+
+/// True iff `url` matches the official owner allowlist (DESIGN §8). The
+/// allowlist is intentionally a hard-coded list of GitHub owners rather
+/// than a remote-fetched registry — luban can't bootstrap trust from
+/// the network it's about to fetch from.
+bool is_official_url(std::string_view url);
 
 /// Read the registry. Missing file → empty vector (not an error).
 [[nodiscard]] std::expected<std::vector<SourceEntry>, std::string>

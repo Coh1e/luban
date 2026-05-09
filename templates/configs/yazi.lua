@@ -12,6 +12,14 @@
 
 local M = {}
 
+-- DESIGN §4/§7 capability declaration (read by lua_frontend::extract_capability).
+M.capability = {
+  writable_dirs   = { "<xdg_config>/yazi/" },
+  overwrite       = false,
+  needs_confirm   = false,
+  touches_profile = false,
+}
+
 function M.target_path(_cfg, ctx)
   return ctx.xdg_config .. "/yazi/yazi.toml"
 end

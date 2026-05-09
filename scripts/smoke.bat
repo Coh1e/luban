@@ -1,10 +1,11 @@
 @echo off
-:: luban smoke test (Windows). Exercises the daily-driver path:
-:: new -> add -> build -> run -> check -> clean -> target add/build -> remove/sync -> doctor.
-:: Designed for CI: zero ambient state, isolated temp project, clear pass/fail.
+:: luban smoke test (Windows). Exercises the daily-driver path on the
+:: v1.0 verb surface (DESIGN §5):
+::   new -> add/remove -> build -> run -> doctor -> describe ->
+::   bp src add + bp apply.
 ::
 :: Pre-req: luban + toolchain already installed (caller has applied
-:: `main/cpp-toolchain` and run `luban env --user`). The script does NOT
+:: `main/bootstrap` and run `luban env --user`). The script does NOT
 :: bootstrap luban itself.
 ::
 :: Exit codes:
@@ -84,68 +85,63 @@ findstr /c:"hello from smoketest" smoke-out.txt >nul || (
     goto :fail
 )
 
-:: ---- 5. check (cmake configure with -Wdev, no full rebuild) ----
-:: Reuses the existing build/ tree. -Wdev surfaces CMakeLists policy issues
-:: but doesn't fail the build; we only assert exit 0.
-set /a STEP+=1
-"%LUBAN%" check || (echo SMOKE step %STEP% FAIL: check & goto :fail)
-
-:: ---- 6. clean + rebuild (round-trip) ----
-:: clean must return 0 and remove build/. Subsequent build must reproduce
-:: the exe, proving the project is reproducible from manifest+source alone.
-set /a STEP+=1
-"%LUBAN%" clean || (echo SMOKE step %STEP% FAIL: clean & goto :fail)
-if exist build (echo SMOKE step %STEP% FAIL: build dir not removed & goto :fail)
-"%LUBAN%" build || (echo SMOKE step %STEP% FAIL: rebuild after clean & goto :fail)
-set EXE_FOUND=
-for /r build %%f in (smoketest.exe) do (
-    if exist "%%f" set EXE_FOUND=%%f
-)
-if not defined EXE_FOUND (echo SMOKE step %STEP% FAIL: smoketest.exe missing after rebuild & goto :fail)
-
-:: ---- 7. target add lib + rebuild ----
-set /a STEP+=1
-"%LUBAN%" target add lib mycore || (echo SMOKE step %STEP% FAIL: target add & goto :fail)
-if not exist src\mycore\CMakeLists.txt (echo SMOKE step %STEP% FAIL: mycore/CMakeLists.txt & goto :fail)
-"%LUBAN%" build || (echo SMOKE step %STEP% FAIL: build after target add & goto :fail)
-
-:: ---- 8. target remove + sync ----
-set /a STEP+=1
-"%LUBAN%" target remove mycore || (echo SMOKE step %STEP% FAIL: target remove & goto :fail)
-"%LUBAN%" sync || (echo SMOKE step %STEP% FAIL: sync & goto :fail)
-
-:: ---- 9. doctor (verify it runs and emits valid JSON; not --strict) ----
-:: Smoke skips `luban setup` (saves 250 MB of downloads on every CI run),
-:: so installed.json is empty → doctor --strict would exit 1, and
-:: doctor --json reports all_ok: false. That's not a luban bug, just the
-:: smoke runner's choice to test luban-the-binary rather than a fully-
-:: provisioned host. So the asserts here are: doctor exits 0, --json
-:: produces a "schema" key (proving valid output, not a crash).
+:: ---- 5. doctor (text + --json) ----
+:: Smoke runs without applying any bp, so applied.txt may be empty —
+:: doctor --strict would exit 1, but plain doctor exits 0 unconditionally.
+:: --json must contain a "schema" key, proving valid output (not a crash).
 set /a STEP+=1
 "%LUBAN%" doctor >nul || (echo SMOKE step %STEP% FAIL: doctor exit nonzero & goto :fail)
 "%LUBAN%" doctor --json | findstr /c:"\"schema\":" >nul || (
     echo SMOKE step %STEP% FAIL: doctor --json missing schema field & goto :fail
 )
 
-:: ---- 10. blueprint pipeline (apply + unapply + rollback, no network) ----
-:: Exercises the v1.0 verbs added in S6/S7: bp src add (file:// source),
-:: bp apply, bp unapply (now restores disk), bp rollback (now reconciles
-:: disk to target generation). Runs in its own LUBAN_PREFIX/USERPROFILE
-:: sandbox so applied state never touches the user's real ~/.local/bin
-:: or XDG dirs.
+:: ---- 6. describe (text + --json + introspection prefixes) ----
+:: DESIGN §5 + §10 require describe --json to expose a stable schema for
+:: IDE plugins / agents. Confirm the schema marker, then exercise the
+:: introspection prefixes (DESIGN §5: `port:` and `tool:`).
+set /a STEP+=1
+"%LUBAN%" describe >nul || (echo SMOKE step %STEP% FAIL: describe exit nonzero & goto :fail)
+"%LUBAN%" describe --json | findstr /c:"\"schema\":" >nul || (
+    echo SMOKE step %STEP% FAIL: describe --json missing schema field & goto :fail
+)
+"%LUBAN%" describe --json | findstr /c:"\"luban_version\":" >nul || (
+    echo SMOKE step %STEP% FAIL: describe --json missing luban_version field & goto :fail
+)
+"%LUBAN%" describe port:fmt | findstr /c:"fmt::fmt" >nul || (
+    echo SMOKE step %STEP% FAIL: describe port:fmt did not surface fmt::fmt & goto :fail
+)
+
+:: ---- 7. blueprint pipeline (bp src add + bp apply, no network) ----
+:: Exercises the v1.0 verb table for blueprints: bp src add (file:// source),
+:: bp apply (DESIGN §5). DESIGN §11 explicitly drops bp unapply / bp rollback,
+:: so this no longer round-trips removal — applying the bp and verifying the
+:: file landed is the assertion.
+::
+:: Runs in its own LUBAN_PREFIX/USERPROFILE sandbox so applied state never
+:: touches the user's real ~/.local/bin or XDG dirs.
 set /a STEP+=1
 set BP_SANDBOX=%TEMP%\luban-smoke-bp-%RANDOM%-%RANDOM%
 mkdir "%BP_SANDBOX%\bp-src\blueprints" || (echo SMOKE step %STEP% FAIL: mkdir bp sandbox & goto :fail)
 
-:: One [files] entry — `~/luban-smoke-marker.txt`. Apply lays it down,
-:: unapply / rollback should remove it.
-> "%BP_SANDBOX%\bp-src\blueprints\smoke-files.toml" (
-    echo name = "smoke-files"
-    echo description = "smoke test blueprint - one file"
-    echo.
-    echo [files."~/luban-smoke-marker.txt"]
-    echo content = "smoke-content-v1"
-    echo mode = "replace"
+:: One [files] entry — `~/luban-smoke-marker.txt`. Apply lays it down;
+:: we assert it then exists. `mode = "replace"` overwrites any preexisting
+:: file at the target path (sandbox is fresh, so no collision).
+::
+:: DESIGN §2 #6: bp source must be `.lua` (TOML accepted only as static
+:: projection, not as parser input). The `[files]` entry's key needs the
+:: bracketed string form because it contains a `~` and `/`.
+> "%BP_SANDBOX%\bp-src\blueprints\smoke-files.lua" (
+    echo return {
+    echo   schema = 1,
+    echo   name = "smoke-files",
+    echo   description = "smoke test blueprint - one file",
+    echo   files = {
+    echo     ["~/luban-smoke-marker.txt"] = {
+    echo       content = "smoke-content-v1",
+    echo       mode = "replace",
+    echo     },
+    echo   },
+    echo }
 )
 
 set _OLD_PREFIX=%LUBAN_PREFIX%
@@ -154,21 +150,15 @@ set LUBAN_PREFIX=%BP_SANDBOX%
 set USERPROFILE=%BP_SANDBOX%
 
 "%LUBAN%" bp src add "%BP_SANDBOX%\bp-src" --name smoke --yes || (echo SMOKE step %STEP% FAIL: bp src add & goto :bp_fail)
-"%LUBAN%" bp apply smoke/smoke-files || (echo SMOKE step %STEP% FAIL: bp apply 1 & goto :bp_fail)
+"%LUBAN%" bp apply smoke/smoke-files --yes || (echo SMOKE step %STEP% FAIL: bp apply & goto :bp_fail)
 if not exist "%BP_SANDBOX%\luban-smoke-marker.txt" (echo SMOKE step %STEP% FAIL: marker not deployed by apply & goto :bp_fail)
 
-:: Use the qualified `<source>/<bp>` form on purpose: unapply normalizes
-:: by stripping the source prefix. Earlier versions silently no-op'd
-:: this case (records key on bare name); the assertion right below
-:: guards that fix.
-"%LUBAN%" bp unapply smoke/smoke-files || (echo SMOKE step %STEP% FAIL: bp unapply & goto :bp_fail)
-if exist "%BP_SANDBOX%\luban-smoke-marker.txt" (echo SMOKE step %STEP% FAIL: marker still present after unapply & goto :bp_fail)
-
-"%LUBAN%" bp apply smoke/smoke-files || (echo SMOKE step %STEP% FAIL: bp apply 2 & goto :bp_fail)
-if not exist "%BP_SANDBOX%\luban-smoke-marker.txt" (echo SMOKE step %STEP% FAIL: marker not redeployed by apply 2 & goto :bp_fail)
-
-"%LUBAN%" bp rollback || (echo SMOKE step %STEP% FAIL: bp rollback & goto :bp_fail)
-if exist "%BP_SANDBOX%\luban-smoke-marker.txt" (echo SMOKE step %STEP% FAIL: marker still present after rollback & goto :bp_fail)
+:: dry-run on a re-apply must NOT touch state — applied.txt entries should
+:: stay as-is and the marker file content shouldn't be re-written. We don't
+:: try to assert mtime stability (filesystem-resolution-dependent), but a
+:: clean exit + persisted marker is sufficient evidence dry-run is wired.
+"%LUBAN%" bp apply smoke/smoke-files --dry-run --yes || (echo SMOKE step %STEP% FAIL: bp apply --dry-run & goto :bp_fail)
+if not exist "%BP_SANDBOX%\luban-smoke-marker.txt" (echo SMOKE step %STEP% FAIL: marker vanished after --dry-run & goto :bp_fail)
 
 set LUBAN_PREFIX=%_OLD_PREFIX%
 set USERPROFILE=%_OLD_USERPROFILE%
@@ -184,7 +174,7 @@ goto :fail
 :: ---- cleanup ----
 popd
 rmdir /s /q "%TMP_PROJ%" 2>nul
-echo SMOKE OK (10/10 steps passed)
+echo SMOKE OK (7/7 steps passed)
 exit /b 0
 
 :fail

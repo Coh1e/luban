@@ -219,6 +219,11 @@ int api_register_renderer(lua_State* L) {
     }
     int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
+    // Module table is still at stack idx 2 (luaL_ref popped only target_path
+    // and render). Extract optional `module.capability` before any other
+    // stack manipulation so the index stays valid.
+    auto cap = ::luban::lua_frontend::extract_capability(L, 2);
+
     // Look up the registry pointer stashed by Engine::attach_registry.
     // Absent = no-op (silently drop the refs we just took since nobody
     // will ever call them).
@@ -236,7 +241,7 @@ int api_register_renderer(lua_State* L) {
     // shared_ptr<LuaRef> captures in std::function. The registry sees only
     // RendererFns from here on.
     reg->register_native(name,
-        ::luban::lua_frontend::wrap_renderer_module(L, tp_ref, r_ref));
+        ::luban::lua_frontend::wrap_renderer_module(L, tp_ref, r_ref, std::move(cap)));
     return 0;
 }
 

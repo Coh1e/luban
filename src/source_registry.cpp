@@ -27,7 +27,28 @@ std::string get_str(const ::toml::table& t, const char* key) {
     return {};
 }
 
+// GitHub owners whose sources luban treats as official (DESIGN §8). Hard-
+// coded; remote fetch is a chicken-and-egg problem (we can't bootstrap
+// trust from the network we're about to fetch). Adding to this list is
+// a deliberate code change with PR review.
+constexpr std::string_view kOfficialOwners[] = {
+    "Coh1e",
+};
+
 }  // namespace
+
+bool is_official_url(std::string_view url) {
+    constexpr std::string_view kPrefix = "https://github.com/";
+    if (!url.starts_with(kPrefix)) return false;
+    auto rest = url.substr(kPrefix.size());
+    auto slash = rest.find('/');
+    if (slash == std::string_view::npos || slash == 0) return false;
+    auto owner = rest.substr(0, slash);
+    for (auto official : kOfficialOwners) {
+        if (owner == official) return true;
+    }
+    return false;
+}
 
 std::expected<std::vector<SourceEntry>, std::string>
 read_file(const fs::path& path) {
@@ -64,6 +85,16 @@ read_file(const fs::path& path) {
         e.ref      = get_str(*entry_tbl, "ref");
         e.commit   = get_str(*entry_tbl, "commit");
         e.added_at = get_str(*entry_tbl, "added_at");
+        // `official` was added post-v1.0. Old entries lack it — derive
+        // from URL so the user doesn't have to re-add their sources after
+        // upgrading. Explicit `official = true/false` overrides the
+        // derivation (lets a user pin a source as non-official locally
+        // even if a future luban update adds the owner to kOfficialOwners).
+        if (auto v = (*entry_tbl)["official"].value<bool>()) {
+            e.official = *v;
+        } else {
+            e.official = is_official_url(e.url);
+        }
         if (!e.url.empty()) out.push_back(std::move(e));
     }
     return out;
@@ -98,7 +129,8 @@ write_file(const fs::path& path, const std::vector<SourceEntry>& entries) {
         out << "url      = " << toml_quote(e.url) << "\n";
         out << "ref      = " << toml_quote(e.ref) << "\n";
         out << "commit   = " << toml_quote(e.commit) << "\n";
-        out << "added_at = " << toml_quote(e.added_at) << "\n\n";
+        out << "added_at = " << toml_quote(e.added_at) << "\n";
+        out << "official = " << (e.official ? "true" : "false") << "\n\n";
     }
 
     std::error_code ec;

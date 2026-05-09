@@ -29,11 +29,13 @@
 
 #include "json.hpp"
 
+#include "../blueprint_lock.hpp"
 #include "../cli.hpp"
 #include "../log.hpp"
 #include "../applied_db.hpp"
 #include "../path_search.hpp"
 #include "../paths.hpp"
+#include "../source_registry.hpp"
 #include "../tool_list.hpp"
 
 namespace luban::commands {
@@ -56,11 +58,12 @@ struct Report {
     std::vector<CheckRow> subdirs;
     std::vector<CheckRow> components;     // detail = "<version>"; ok=false if empty
     std::vector<CheckRow> tools;
+    std::vector<CheckRow> trust;          // DESIGN §8: source officiality + TOFU
     bool volume_warning = false;          // data/cache on different volumes
 
     // True iff every recorded check passed. Drives --strict exit code.
     bool all_ok() const {
-        for (auto* list : {&homes, &subdirs, &components, &tools}) {
+        for (auto* list : {&homes, &subdirs, &components, &tools, &trust}) {
             for (auto& r : *list) if (!r.ok) return false;
         }
         return true;
@@ -122,6 +125,79 @@ Report build_report() {
         }
     }
 
+    // 5. Trust checks (DESIGN §8). Two surfaces here:
+    //    a) Per registered source: official-allowlist membership
+    //    b) Per applied bp's .lock: tools with empty sha256 = TOFU
+    //
+    // external_skip auditing is owned by the apply-time trust summary
+    // (rendered in blueprint_apply.cpp) — it has the full bp spec in
+    // hand and can report probe target + PATH hit per tool. Re-doing
+    // the same in doctor would require dragging lua_engine + a bp
+    // re-parse into doctor's link surface for a redundant signal.
+    // DESIGN §8 codifies this split.
+    {
+        auto entries = source_registry::read();
+        std::vector<fs::path> bp_lock_search_roots;
+        bp_lock_search_roots.push_back(paths::config_dir() / "blueprints");
+        if (entries) {
+            for (auto& e : *entries) {
+                std::string label = "source: " + e.name;
+                if (e.official) {
+                    r.trust.push_back({label, e.url + " (official)", true});
+                } else {
+                    r.trust.push_back({label, e.url + " — NON-OFFICIAL", false});
+                }
+                // Mirror commands/blueprint.cpp::source_root_for: file://
+                // sources live-link to the user's repo; remote sources land
+                // at paths::bp_sources_dir(name).
+                constexpr std::string_view kFileScheme = "file://";
+                fs::path root;
+                if (std::string_view(e.url).starts_with(kFileScheme)) {
+                    std::string_view rest = std::string_view(e.url).substr(kFileScheme.size());
+                    if (rest.starts_with("/") && rest.size() >= 4 &&
+                        std::isalpha(static_cast<unsigned char>(rest[1])) && rest[2] == ':') {
+                        rest.remove_prefix(1);
+                    }
+                    root = fs::path(std::string(rest));
+                } else {
+                    root = paths::bp_sources_dir(e.name);
+                }
+                bp_lock_search_roots.push_back(root / "blueprints");
+            }
+        }
+
+        // Walk *.lock files under every search root, collect TOFU tools.
+        for (auto& root : bp_lock_search_roots) {
+            std::error_code dec;
+            if (!fs::is_directory(root, dec)) continue;
+            for (auto& entry : fs::directory_iterator(root, dec)) {
+                if (!entry.is_regular_file(dec)) continue;
+                auto p = entry.path();
+                if (p.extension() != ".lock") continue;
+                auto lock = blueprint_lock::read_file(p);
+                if (!lock) continue;
+                for (auto& [tool_name, lt] : lock->tools) {
+                    for (auto& [tgt, lp] : lt.platforms) {
+                        if (lp.sha256.empty()) {
+                            r.trust.push_back({
+                                "TOFU tool: " + lock->blueprint_name + "/" + tool_name,
+                                "no sha256 pin in lock (target=" + tgt + ", url=" +
+                                    lp.url + ")",
+                                false});
+                        }
+                    }
+                }
+            }
+        }
+
+        // Friendly empty-state row so an all-clean machine doesn't show a
+        // suspicious bare section. The marker is a green check; the row
+        // counts as ok=true so --strict isn't tripped.
+        if (r.trust.empty()) {
+            r.trust.push_back({"(none)", "no registered sources or locks scanned", true});
+        }
+    }
+
     return r;
 }
 
@@ -178,6 +254,16 @@ void render_text(const Report& r) {
         std::string loc = row.ok ? row.detail : log::dim("(not found)");
         println("  " + marker(row.ok) + " " + pad(row.label, 14) + " " + loc);
     }
+
+    std::cout << '\n';
+    log::step("Trust (DESIGN §8)");
+    size_t trust_w = 0;
+    for (auto& row : r.trust) trust_w = std::max(trust_w, row.label.size());
+    if (trust_w > 36) trust_w = 36;
+    for (auto& row : r.trust) {
+        std::string m = row.ok ? log::green("\xe2\x9c\x93") : log::red("!");
+        println("  " + m + " " + pad(row.label, trust_w) + "  " + row.detail);
+    }
 }
 
 // ---- JSON renderer ----------------------------------------------------------
@@ -201,6 +287,7 @@ void render_json(const Report& r) {
         {"subdirs", rows_to_json(r.subdirs)},
         {"components", rows_to_json(r.components)},
         {"tools", rows_to_json(r.tools)},
+        {"trust", rows_to_json(r.trust)},
     });
     std::cout << doc.dump(2) << '\n';
 }

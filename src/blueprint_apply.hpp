@@ -60,6 +60,23 @@ struct ApplyOptions {
     /// commands/blueprint.cpp always passes a non-null registry as of
     /// the AI single-path commit.
     luban::renderer_registry::RendererRegistry* renderer_registry = nullptr;
+
+    /// True when the bp source is on the official allowlist (DESIGN §8).
+    /// Defaults true so programmatic callers (tests, file-only fixtures)
+    /// don't accidentally trigger the non-official confirmation prompt.
+    /// `commands/blueprint.cpp` consults `source_registry::SourceEntry::
+    /// official` and forwards the result here.
+    bool source_official = true;
+
+    /// User-facing source label rendered in the trust summary header
+    /// ("bp source: <name>"). Empty = "(local / unknown)". Optional —
+    /// the summary still prints with whatever it has.
+    std::string bp_source_name;
+
+    /// Auto-confirm the trust summary's prompt for non-official sources.
+    /// Mirrors the `--yes` flag on `bp apply`. Has no effect for official
+    /// sources (no prompt is shown either way).
+    bool yes = false;
 };
 
 struct ApplyResult {

@@ -139,7 +139,8 @@ TEST_CASE("RendererRegistry: dtor releases Lua-backed refs via shared_ptr") {
         int r_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
         reg.register_native("foo",
-            luban::lua_frontend::wrap_renderer_module(L, tp_ref, r_ref));
+            luban::lua_frontend::wrap_renderer_module(
+                L, tp_ref, r_ref, luban::render_types::Capability{}));
 
         auto* fns = reg.find_native("foo");
         REQUIRE(fns != nullptr);

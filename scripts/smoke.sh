@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # luban smoke test (POSIX). Mirrors scripts/smoke.bat for Linux/macOS.
 #
-# Same 9 steps: new -> add -> build -> run -> check -> clean ->
-# target add/build -> remove/sync -> doctor.
+# Same 7 steps as the Windows variant, on the v1.0 verb surface (DESIGN §5):
+#   new -> add/remove -> build -> run -> doctor -> describe ->
+#   bp src add + bp apply.
 #
 # Pre-req: luban + toolchain already on PATH (caller has applied
-# `main/cpp-toolchain` and run `luban env --user` and re-sourced their
+# `main/bootstrap` and run `luban env --user` and re-sourced their
 # shell rc). The script does NOT bootstrap luban itself.
 #
 # Exit codes:
@@ -91,42 +92,10 @@ if ! grep -q "hello from smoketest" smoke-out.txt; then
     fail
 fi
 
-# ---- 5. check (cmake configure with -Wdev, no full rebuild) ----
-# Reuses the existing build/ tree. -Wdev surfaces CMakeLists policy issues
-# but doesn't fail the build; we only assert exit 0.
-STEP=$((STEP + 1))
-"${LUBAN}" check || { echo "SMOKE step ${STEP} FAIL: check" >&2; fail; }
-
-# ---- 6. clean + rebuild (round-trip) ----
-# clean must return 0 and remove build/. Subsequent build must reproduce
-# the exe, proving the project is reproducible from manifest+source alone.
-STEP=$((STEP + 1))
-"${LUBAN}" clean || { echo "SMOKE step ${STEP} FAIL: clean" >&2; fail; }
-[ ! -d build ] || { echo "SMOKE step ${STEP} FAIL: build dir not removed" >&2; fail; }
-"${LUBAN}" build || { echo "SMOKE step ${STEP} FAIL: rebuild after clean" >&2; fail; }
-EXE_FOUND="$(find build -name smoketest -type f -executable 2>/dev/null | head -n1 || true)"
-if [ -z "${EXE_FOUND}" ]; then
-    echo "SMOKE step ${STEP} FAIL: smoketest binary missing after rebuild" >&2
-    fail
-fi
-
-# ---- 7. target add lib + rebuild ----
-STEP=$((STEP + 1))
-"${LUBAN}" target add lib mycore || { echo "SMOKE step ${STEP} FAIL: target add" >&2; fail; }
-[ -f src/mycore/CMakeLists.txt ] || { echo "SMOKE step ${STEP} FAIL: mycore/CMakeLists.txt" >&2; fail; }
-"${LUBAN}" build || { echo "SMOKE step ${STEP} FAIL: build after target add" >&2; fail; }
-
-# ---- 8. target remove + sync ----
-STEP=$((STEP + 1))
-"${LUBAN}" target remove mycore || { echo "SMOKE step ${STEP} FAIL: target remove" >&2; fail; }
-"${LUBAN}" sync || { echo "SMOKE step ${STEP} FAIL: sync" >&2; fail; }
-
-# ---- 9. doctor (verify it runs and emits valid JSON; not --strict) ----
-# Smoke skips `luban setup` (saves 250 MB of downloads on every CI run),
-# so installed.json is empty → doctor --strict would exit 1, and
-# doctor --json reports all_ok: false. That's not a luban bug, just the
-# smoke runner's choice to test luban-the-binary rather than a fully-
-# provisioned host.
+# ---- 5. doctor (text + --json) ----
+# Smoke runs without applying any bp, so applied.txt may be empty —
+# doctor --strict would exit 1, but plain doctor exits 0 unconditionally.
+# --json must contain a "schema" key, proving valid output (not a crash).
 STEP=$((STEP + 1))
 "${LUBAN}" doctor >/dev/null || { echo "SMOKE step ${STEP} FAIL: doctor exit nonzero" >&2; fail; }
 "${LUBAN}" doctor --json | grep -q '"schema":' || {
@@ -134,21 +103,49 @@ STEP=$((STEP + 1))
     fail
 }
 
-# ---- 10. blueprint pipeline (apply + unapply + rollback, no network) ----
-# Mirrors smoke.bat step 10. Drops a one-file blueprint under a file://
-# bp source, applies/unapplies/rolls-back, and asserts the deployed file
-# really comes and goes on disk. Sandboxed via LUBAN_PREFIX + HOME.
+# ---- 6. describe (text + --json + introspection prefixes) ----
+# DESIGN §5 + §10 require describe --json to expose a stable schema for
+# IDE plugins / agents. Confirm the schema marker, then exercise the
+# introspection prefixes (DESIGN §5: `port:` and `tool:`).
+STEP=$((STEP + 1))
+"${LUBAN}" describe >/dev/null || { echo "SMOKE step ${STEP} FAIL: describe exit nonzero" >&2; fail; }
+"${LUBAN}" describe --json | grep -q '"schema":' || {
+    echo "SMOKE step ${STEP} FAIL: describe --json missing schema field" >&2
+    fail
+}
+"${LUBAN}" describe --json | grep -q '"luban_version":' || {
+    echo "SMOKE step ${STEP} FAIL: describe --json missing luban_version field" >&2
+    fail
+}
+"${LUBAN}" describe port:fmt | grep -q 'fmt::fmt' || {
+    echo "SMOKE step ${STEP} FAIL: describe port:fmt did not surface fmt::fmt" >&2
+    fail
+}
+
+# ---- 7. blueprint pipeline (bp src add + bp apply, no network) ----
+# Exercises the v1.0 verb table for blueprints: bp src add (file:// source),
+# bp apply (DESIGN §5). DESIGN §11 explicitly drops bp unapply / bp rollback,
+# so this no longer round-trips removal — applying the bp and verifying the
+# file landed is the assertion. Sandboxed via LUBAN_PREFIX + HOME.
+#
+# DESIGN §2 #6: bp source must be `.lua` (TOML accepted only as static
+# projection, not as parser input).
 STEP=$((STEP + 1))
 BP_SANDBOX="$(mktemp -d -t luban-smoke-bp-XXXXXX)"
 mkdir -p "${BP_SANDBOX}/bp-src/blueprints" || { echo "SMOKE step ${STEP} FAIL: mkdir bp sandbox" >&2; fail; }
 
-cat >"${BP_SANDBOX}/bp-src/blueprints/smoke-files.toml" <<'EOF'
-name = "smoke-files"
-description = "smoke test blueprint - one file"
-
-[files."~/luban-smoke-marker.txt"]
-content = "smoke-content-v1"
-mode = "replace"
+cat >"${BP_SANDBOX}/bp-src/blueprints/smoke-files.lua" <<'EOF'
+return {
+  schema = 1,
+  name = "smoke-files",
+  description = "smoke test blueprint - one file",
+  files = {
+    ["~/luban-smoke-marker.txt"] = {
+      content = "smoke-content-v1",
+      mode = "replace",
+    },
+  },
+}
 EOF
 
 _OLD_PREFIX="${LUBAN_PREFIX:-}"
@@ -163,21 +160,15 @@ bp_fail() {
 }
 
 "${LUBAN}" bp src add "${BP_SANDBOX}/bp-src" --name smoke --yes || { echo "SMOKE step ${STEP} FAIL: bp src add" >&2; bp_fail; }
-"${LUBAN}" bp apply smoke/smoke-files || { echo "SMOKE step ${STEP} FAIL: bp apply 1" >&2; bp_fail; }
+"${LUBAN}" bp apply smoke/smoke-files --yes || { echo "SMOKE step ${STEP} FAIL: bp apply" >&2; bp_fail; }
 [ -f "${BP_SANDBOX}/luban-smoke-marker.txt" ] || { echo "SMOKE step ${STEP} FAIL: marker not deployed by apply" >&2; bp_fail; }
 
-# Use the qualified `<source>/<bp>` form on purpose: unapply normalizes
-# by stripping the source prefix. Earlier versions silently no-op'd
-# this case (records key on bare name); the assertion right below
-# guards that fix.
-"${LUBAN}" bp unapply smoke/smoke-files || { echo "SMOKE step ${STEP} FAIL: bp unapply" >&2; bp_fail; }
-[ ! -f "${BP_SANDBOX}/luban-smoke-marker.txt" ] || { echo "SMOKE step ${STEP} FAIL: marker still present after unapply" >&2; bp_fail; }
-
-"${LUBAN}" bp apply smoke/smoke-files || { echo "SMOKE step ${STEP} FAIL: bp apply 2" >&2; bp_fail; }
-[ -f "${BP_SANDBOX}/luban-smoke-marker.txt" ] || { echo "SMOKE step ${STEP} FAIL: marker not redeployed" >&2; bp_fail; }
-
-"${LUBAN}" bp rollback || { echo "SMOKE step ${STEP} FAIL: bp rollback" >&2; bp_fail; }
-[ ! -f "${BP_SANDBOX}/luban-smoke-marker.txt" ] || { echo "SMOKE step ${STEP} FAIL: marker still present after rollback" >&2; bp_fail; }
+# dry-run on a re-apply must NOT touch state — applied.txt entries should
+# stay as-is and the marker file shouldn't get re-written. We don't try to
+# assert mtime stability (filesystem-resolution-dependent), but a clean
+# exit + persisted marker is sufficient evidence dry-run is wired.
+"${LUBAN}" bp apply smoke/smoke-files --dry-run --yes || { echo "SMOKE step ${STEP} FAIL: bp apply --dry-run" >&2; bp_fail; }
+[ -f "${BP_SANDBOX}/luban-smoke-marker.txt" ] || { echo "SMOKE step ${STEP} FAIL: marker vanished after --dry-run" >&2; bp_fail; }
 
 export LUBAN_PREFIX="${_OLD_PREFIX}"
 export HOME="${_OLD_HOME}"
@@ -186,5 +177,5 @@ rm -rf "${BP_SANDBOX}"
 # ---- cleanup ----
 cd "${SCRIPT_DIR}"
 rm -rf "${TMP_PROJ}"
-echo "SMOKE OK (10/10 steps passed)"
+echo "SMOKE OK (7/7 steps passed)"
 exit 0

@@ -13,6 +13,15 @@
 
 local M = {}
 
+-- DESIGN §4/§7 capability declaration (read by lua_frontend::extract_capability;
+-- surfaces in `bp apply` trust summary + `doctor`).
+M.capability = {
+  writable_dirs   = { "<xdg_config>/bat/" },
+  overwrite       = false,    -- writes only the luban-owned drop-in file
+  needs_confirm   = false,    -- no high-impact side effects
+  touches_profile = false,    -- not WT / PowerShell profile / fonts
+}
+
 function M.target_path(_cfg, ctx)
   return ctx.xdg_config .. "/bat/config"
 end

@@ -37,8 +37,25 @@ namespace luban::lua_frontend {
 /// `RendererFns` whose call sites invoke them via lua_pcall. The refs
 /// are owned by the returned object — when the last copy dies, both
 /// luaL_unref'd back to the engine.
+///
+/// `cap` is the renderer-declared capability metadata (DESIGN §4/§7);
+/// pass a default-constructed `Capability{}` (declared=false) when the
+/// caller could not extract one from the source module.
 [[nodiscard]] luban::render_types::RendererFns wrap_renderer_module(
-    lua_State* L, int target_path_ref, int render_ref);
+    lua_State* L, int target_path_ref, int render_ref,
+    luban::render_types::Capability cap);
+
+/// Walk `module.capability` from a Lua table at stack index `module_idx`
+/// into a C++ `Capability`. Returns `Capability{declared=false}` when the
+/// `capability` field is missing or not a table — callers treat this as
+/// "renderer didn't opt in", which the trust summary then reports as
+/// "(undeclared)".
+///
+/// Does not mutate the stack outside the lifetime of internal helper
+/// pushes (lua_getfield + lua_pop pairs balance out). Caller still owns
+/// the module table at module_idx after return.
+[[nodiscard]] luban::render_types::Capability extract_capability(
+    lua_State* L, int module_idx);
 
 /// Wrap a single LUA_REGISTRYINDEX ref to a Lua function into a
 /// `ResolverFn`. The fn is invoked with a `spec` table {name, source,

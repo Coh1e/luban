@@ -408,6 +408,7 @@ int run_apply(const cli::ParsedArgs& args) {
 
     luban::blueprint_apply::ApplyOptions opts;
     opts.dry_run = args.flags.count("dry-run") && args.flags.at("dry-run");
+    opts.yes     = args.flags.count("yes")     && args.flags.at("yes");
     // bp_source_root = parent of the blueprints/ dir that holds source_path.
     // post_install paths prefixed `bp:` resolve against this root, letting a
     // bp ship a registration script alongside its blueprint without having
@@ -425,6 +426,31 @@ int run_apply(const cli::ParsedArgs& args) {
     // dispatch still funnels through it so the fall-through to the
     // builtin path is the same code as Lua bps' shadow-or-fallthrough.
     opts.renderer_registry = &apply_registry;
+
+    // DESIGN §8 trust model: source officiality flows from the bp source
+    // registry into the apply-time trust summary. Bare-name / user-local
+    // bps (no registered source) default to non-official — local bps
+    // already needed an explicit `bp source add` for everything except
+    // ad-hoc development under <config>/luban/blueprints/, so requiring
+    // confirmation there errs on the safe side.
+    opts.bp_source_name = resolved->bp_source;
+    if (!resolved->bp_source.empty()) {
+        if (auto entries = sr::read(); entries) {
+            if (auto e = sr::find(*entries, resolved->bp_source)) {
+                opts.source_official = e->official;
+            } else {
+                opts.source_official = false;
+            }
+        } else {
+            opts.source_official = false;
+        }
+    } else {
+        // No registered source = either user-local under <config>/blueprints/
+        // (treat as non-official; DESIGN §8 only the official allowlist
+        // confers default trust) or embedded:* (rejected earlier).
+        opts.source_official = false;
+        if (opts.bp_source_name.empty()) opts.bp_source_name = "user-local";
+    }
 
     auto result = luban::blueprint_apply::apply(resolved->spec, *lock, opts);
     if (!result) {

@@ -39,6 +39,7 @@
 #include "../cli.hpp"
 #include "../download.hpp"
 #include "../iso_time.hpp"
+#include "../log.hpp"
 #include "../paths.hpp"
 #include "../source_registry.hpp"
 #include "bp_source.hpp"
@@ -245,13 +246,34 @@ bool source_dir_looks_valid(const fs::path& dir) {
 
 // ---- Trust prompt ------------------------------------------------------
 
-bool prompt_trust(const std::string& name, const std::string& url) {
+bool prompt_trust(const std::string& name, const std::string& url, bool official) {
     std::printf("\n");
-    std::printf("Add bp source `%s`:\n", name.c_str());
+    if (official) {
+        std::printf("Add bp source `%s` (%s):\n",
+                    name.c_str(),
+                    luban::log::green("official").c_str());
+    } else {
+        std::printf("%s — Add %s bp source `%s`:\n",
+                    luban::log::red("WARNING").c_str(),
+                    luban::log::red("non-official").c_str(),
+                    name.c_str());
+    }
     std::printf("  url: %s\n", url.c_str());
     std::printf("\n");
-    std::printf("Blueprints from this source can run Lua extensions and\n");
-    std::printf("post-install scripts. Proceed only if you trust the maintainer.\n");
+    if (official) {
+        std::printf("Blueprints from this source can run Lua extensions and\n");
+        std::printf("post-install scripts. Default-trusted; review the trust\n");
+        std::printf("summary at `bp apply` time.\n");
+    } else {
+        std::printf("%s This source is %s. Blueprints from it can\n",
+                    luban::log::red("!").c_str(),
+                    luban::log::red("not on luban's official allowlist").c_str());
+        std::printf("execute Lua and post-install scripts on your machine. Only\n");
+        std::printf("proceed if you trust the maintainer end-to-end.\n");
+        std::printf("\n");
+        std::printf("(`luban doctor` will continue to surface this source as\n");
+        std::printf("non-official until removed.)\n");
+    }
     std::printf("\n");
     std::printf("Continue? [y/N] ");
     std::fflush(stdout);
@@ -324,8 +346,9 @@ int run_source_add(const cli::ParsedArgs& args) {
                        entries->end());
     }
 
+    bool official = sr::is_official_url(url);
     bool autoyes = args.flags.count("yes") && args.flags.at("yes");
-    if (!autoyes && !prompt_trust(name, url)) {
+    if (!autoyes && !prompt_trust(name, url, official)) {
         std::printf("aborted.\n");
         return 1;
     }
@@ -335,6 +358,7 @@ int run_source_add(const cli::ParsedArgs& args) {
     entry.url = url;
     entry.ref = ref;
     entry.added_at = luban::iso_time::now();
+    entry.official = official;
 
     if (auto gh = parse_github_url(url)) {
         std::string the_ref = default_ref(ref);
