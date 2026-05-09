@@ -20,7 +20,6 @@
 #include "../log.hpp"
 #include "../msvc_env.hpp"
 #include "../paths.hpp"
-#include "../registry.hpp"
 #include "../win_path.hpp"
 
 namespace luban::commands {
@@ -218,32 +217,12 @@ int run_env(const cli::ParsedArgs& a) {
             log::infof("{} already on HKCU PATH (no change)", xdg_bin.string());
         }
 
-        auto recs = registry::load_installed();
-
-        // VCPKG_ROOT: CMakePresets.json uses
-        //   $env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake
-        // so the var must be in HKCU for users running cmake outside luban.
-        auto vcpkg_it = recs.find("vcpkg");
-        if (vcpkg_it != recs.end() && !vcpkg_it->second.toolchain_dir.empty()) {
-            fs::path vcpkg_root = paths::toolchain_dir(vcpkg_it->second.toolchain_dir);
-            vcpkg_root.make_preferred();
-            if (win_path::set_user_env("VCPKG_ROOT", vcpkg_root.string())) {
-                log::okf("set HKCU VCPKG_ROOT = {}", vcpkg_root.string());
-            }
-        } else {
-            log::info("VCPKG_ROOT not set (no vcpkg in registry; run `luban bp apply main/cpp-base` first)");
-        }
-
-        // EM_CONFIG: emscripten's config file lives at <config>/emscripten/config
-        // (XDG-respecting, written by component.cpp). Setting EM_CONFIG lets
-        // users run emcc directly in any shell — no activation, no PATH dance.
-        if (recs.find("emscripten") != recs.end()) {
-            fs::path em_config = paths::config_dir() / "emscripten" / "config";
-            em_config.make_preferred();
-            if (win_path::set_user_env("EM_CONFIG", em_config.string())) {
-                log::okf("set HKCU EM_CONFIG = {}", em_config.string());
-            }
-        }
+        // VCPKG_ROOT / EM_CONFIG were inferred from the v0.x installed.json
+        // registry. With registry/installed.json gone (DESIGN §11), users
+        // who need those env vars in HKCU should `setx` them directly. For
+        // shells driven through `luban run` / `luban build`, the shim at
+        // ~/.local/bin/vcpkg.cmd resolves vcpkg without requiring
+        // VCPKG_ROOT in env.
 
         // MSVC Phase 2: if the user previously ran `luban env --msvc-init`,
         // write the captured INCLUDE / LIB / LIBPATH / WindowsSdk* / etc.

@@ -14,7 +14,6 @@
 #include "../log.hpp"
 #include "../paths.hpp"
 #include "../perception.hpp"
-#include "../registry.hpp"
 #include "../vcpkg_manifest.hpp"
 #include "../luban_toml.hpp"
 
@@ -50,29 +49,12 @@ json build_state() {
     for (auto& [name, p] : paths::all_dirs()) paths_obj[name] = p.string();
     out["paths"] = paths_obj;
 
-    json comps = json::array();
-    for (auto& [name, rec] : registry::load_installed()) {
-        json bins_arr = json::array();
-        for (auto& [alias, rel] : rec.bins) {
-            json b;
-            b["alias"] = alias;
-            b["relative_path"] = rel;
-            b["absolute_path"] = (paths::toolchain_dir(rec.toolchain_dir) / rel).string();
-            bins_arr.push_back(b);
-        }
-        json c;
-        c["name"] = name;
-        c["version"] = rec.version;
-        c["source"] = rec.source;
-        c["url"] = rec.url;
-        c["hash"] = rec.hash_spec;
-        c["toolchain_dir"] = (paths::toolchains_dir() / rec.toolchain_dir).string();
-        c["architecture"] = rec.architecture;
-        c["installed_at"] = rec.installed_at;
-        c["bins"] = bins_arr;
-        comps.push_back(c);
-    }
-    out["installed_components"] = comps;
+    // installed_components was a v0.x notion — `registry::load_installed`
+    // walked installed.json. Removed in v0.5.0 (DESIGN §11 drops "tool
+    // install" / generation history). The bp source registry under
+    // <config>/luban/sources.toml + <state>/luban/applied.txt is the
+    // authoritative successor; expose it via `bp source` / `bp list`.
+    out["installed_components"] = json::array();
 
     // ---- project tier (if cwd is in a luban project) ----
     fs::path proj = find_project_root();
@@ -149,16 +131,10 @@ void print_text(const json& s) {
     }
     std::cout << '\n';
 
-    std::cout << "── Installed components (" << s["installed_components"].size() << ") ──\n";
-    for (auto& c : s["installed_components"]) {
-        std::cout << "  " << c["name"].get<std::string>()
-                  << " " << c["version"].get<std::string>()
-                  << "  →  " << c["toolchain_dir"].get<std::string>() << '\n';
-        std::cout << "      "
-                  << c["bins"].size() << " alias(es), source: "
-                  << c["source"].get<std::string>() << '\n';
-    }
-    std::cout << '\n';
+    // installed_components was the v0.x registry view. v0.5.0+ uses
+    // `luban bp list` for the analogous information (per-source bp
+    // enumeration).
+
 
     if (s.contains("project")) {
         auto& p = s["project"];

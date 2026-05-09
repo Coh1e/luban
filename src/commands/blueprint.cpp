@@ -27,9 +27,9 @@
 #include "../blueprint_apply.hpp"
 #include "../blueprint_lock.hpp"
 #include "../blueprint_lua.hpp"
+#include "../iso_time.hpp"
 #include "../cli.hpp"
 #include "../file_deploy.hpp"
-#include "../generation.hpp"
 #include "../log.hpp"
 #include "../lua_engine.hpp"
 #include "../lua_frontend.hpp"
@@ -54,7 +54,6 @@ namespace {
 namespace fs = std::filesystem;
 namespace bp = luban::blueprint;
 namespace bpl = luban::blueprint_lock;
-namespace gen = luban::generation;
 
 // Builtin renderer table — kept here (rather than in lua_frontend or
 // config_renderer) because pre-loading is the orchestration's job, and
@@ -308,7 +307,7 @@ std::expected<bpl::BlueprintLock, std::string> resolve_lock(
     bpl::BlueprintLock lock;
     lock.schema = 1;
     lock.blueprint_name = spec.name;
-    lock.resolved_at = gen::now_iso8601();
+    lock.resolved_at = luban::iso_time::now();
     for (auto& tool : spec.tools) {
         auto resolved = luban::source_resolver::resolve_with_registry(tool, sreg);
         if (!resolved) {
@@ -433,8 +432,7 @@ int run_apply(const cli::ParsedArgs& args) {
         return 1;
     }
 
-    std::printf("applied blueprint `%s` -> generation %d\n",
-                name.c_str(), result->new_generation_id);
+    std::printf("applied blueprint `%s`\n", name.c_str());
     std::printf("  tools fetched : %d\n", result->tools_fetched);
     std::printf("  tools external: %d\n", result->tools_external);
     std::printf("  files deployed: %d\n", result->files_deployed);

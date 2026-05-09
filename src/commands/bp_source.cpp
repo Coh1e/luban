@@ -38,7 +38,7 @@
 #include "../archive.hpp"
 #include "../cli.hpp"
 #include "../download.hpp"
-#include "../generation.hpp"
+#include "../iso_time.hpp"
 #include "../paths.hpp"
 #include "../source_registry.hpp"
 #include "bp_source.hpp"
@@ -49,7 +49,6 @@ namespace {
 
 namespace fs = std::filesystem;
 namespace sr = luban::source_registry;
-namespace gen = luban::generation;
 
 // ---- URL parsing -------------------------------------------------------
 
@@ -335,7 +334,7 @@ int run_source_add(const cli::ParsedArgs& args) {
     entry.name = name;
     entry.url = url;
     entry.ref = ref;
-    entry.added_at = gen::now_iso8601();
+    entry.added_at = luban::iso_time::now();
 
     if (auto gh = parse_github_url(url)) {
         std::string the_ref = default_ref(ref);
@@ -424,11 +423,11 @@ int run_source_update(const cli::ParsedArgs& args) {
             }
             std::string sha = fetch_github_commit_sha(*gh, the_ref);
             if (!sha.empty()) e->commit = sha;
-            else e->commit = "tarball:" + gen::now_iso8601();
+            else e->commit = "tarball:" + luban::iso_time::now();
         } else if (auto fp = parse_file_url(e->url)) {
             // file:// is live-linked; nothing to fetch. Refresh the timestamp
             // so `ls` reflects when the user last asked for an update.
-            e->commit = "local:" + gen::now_iso8601();
+            e->commit = "local:" + luban::iso_time::now();
         } else {
             std::fprintf(stderr, "  unrecognised url shape in registry: %s\n", e->url.c_str());
             ++failures;

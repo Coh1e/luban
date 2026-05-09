@@ -20,7 +20,6 @@
 #include "../luban_toml.hpp"
 #include "../paths.hpp"
 #include "../proc.hpp"
-#include "../registry.hpp"
 #include "../vcpkg_manifest.hpp"
 
 namespace luban::commands {
@@ -33,24 +32,16 @@ int build_project(const fs::path& project_dir);
 
 namespace {
 
-// Find the real cmake.exe via the registry, bypassing .cmd shim. Falls back
-// to "cmake" on PATH.
+// Resolve cmake.exe via the v0.5.0+ shim at ~/.local/bin/cmake.cmd
+// (installed by `luban bp apply main/cpp-toolchain`). Falls back to the
+// legacy <data>/bin/ shim during the v0.x → v1.0 migration window, then
+// to plain "cmake" on PATH.
 std::string cmake_exe() {
-    auto recs = registry::load_installed();
-    auto it = recs.find("cmake");
-    if (it != recs.end()) {
-        fs::path root = paths::toolchain_dir(it->second.toolchain_dir);
-        for (auto& [alias, rel] : it->second.bins) {
-            if (alias == "cmake") {
-                std::string norm = rel;
-                for (auto& c : norm) if (c == '/' || c == '\\') c = static_cast<char>(fs::path::preferred_separator);
-                return (root / norm).string();
-            }
-        }
-    }
-    fs::path shim = paths::bin_dir() / "cmake.cmd";
     std::error_code ec;
-    if (fs::exists(shim, ec)) return shim.string();
+    fs::path xdg_shim = paths::xdg_bin_home() / "cmake.cmd";
+    if (fs::exists(xdg_shim, ec)) return xdg_shim.string();
+    fs::path legacy_shim = paths::bin_dir() / "cmake.cmd";
+    if (fs::exists(legacy_shim, ec)) return legacy_shim.string();
     return "cmake";
 }
 
@@ -76,92 +67,22 @@ fs::path copy_compile_commands(const fs::path& project, const std::string& prese
     return dst;
 }
 
-// 项目 CMakePresets.json 是否声明了 wasm preset。`luban new --target=wasm`
-// 生成的项目里有；普通项目没有。
-bool has_wasm_preset(const fs::path& project) {
-    fs::path p = project / "CMakePresets.json";
-    std::error_code ec;
-    if (!fs::exists(p, ec)) return false;
-    std::string text = file_util::read_text_no_bom(p);
-    nlohmann::json doc;
-    try { doc = nlohmann::json::parse(text); } catch (...) { return false; }
-    if (!doc.is_object() || !doc.contains("configurePresets")) return false;
-    for (auto& cp : doc["configurePresets"]) {
-        if (cp.is_object() && cp.contains("name") && cp["name"].is_string()
-            && cp["name"].get<std::string>() == "wasm") return true;
-    }
-    return false;
-}
-
 // 自动选 preset：
 //   - 用户显式 --preset xxx → 直接用
-//   - 项目有 wasm preset → "wasm" (emscripten 路径)
 //   - 项目 vcpkg.json 有 deps → "default"（vcpkg toolchain）
 //   - 否则 → "no-vcpkg"（hello-world fast path，无需 VCPKG_ROOT）
+//
+// wasm/emscripten preset support was dropped in v0.5.0 — emscripten was
+// only ever wired through the v0.x registry and isn't part of DESIGN §3.1
+// cpp-toolchain. Users who need wasm can run cmake directly with their
+// own emcmake invocation.
 std::string pick_preset(const fs::path& project, const std::string& explicit_preset) {
     if (!explicit_preset.empty() && explicit_preset != "auto") return explicit_preset;
-    if (has_wasm_preset(project)) return "wasm";
     fs::path vcpkg_json = project / "vcpkg.json";
     std::error_code ec;
     if (!fs::exists(vcpkg_json, ec)) return "default";
     auto m = vcpkg_manifest::load(vcpkg_json);
     return m.dependencies.empty() ? "no-vcpkg" : "default";
-}
-
-// emcmake.bat path from the installed emscripten component. Returns empty
-// if emscripten not installed (caller surfaces a friendlier error).
-std::string emcmake_bat() {
-    auto recs = registry::load_installed();
-    auto it = recs.find("emscripten");
-    if (it == recs.end()) return "";
-    fs::path root = paths::toolchain_dir(it->second.toolchain_dir);
-    for (auto& [alias, rel] : it->second.bins) {
-        if (alias == "emcmake") {
-            std::string norm = rel;
-            for (auto& c : norm) if (c == '/' || c == '\\') c = static_cast<char>(fs::path::preferred_separator);
-            return (root / norm).string();
-        }
-    }
-    return "";
-}
-
-bool is_wasm_preset(const std::string& p) {
-    return p == "wasm" || p == "wasm-debug";
-}
-
-// OQ-2: per-project toolchain version pin check. Reads `[toolchain]` from
-// the project's luban.toml and compares each entry to the installed registry.
-// Empty pins map → no-op. Mismatches log a warning and continue (we don't
-// hard-fail; the user may have intentionally upgraded). Unknown components
-// (in pins but not in installed.json) also warn — they signal either a typo
-// or a missing `luban setup`.
-//
-// This runs *before* cmake so the warnings surface above the configure noise
-// rather than getting buried under it.
-void check_toolchain_pins(const fs::path& project) {
-    fs::path toml_path = project / "luban.toml";
-    std::error_code ec;
-    if (!fs::exists(toml_path, ec)) return;  // no luban.toml → no pins
-
-    auto cfg = luban::luban_toml::load(toml_path);
-    if (cfg.toolchain.empty()) return;       // no [toolchain] section → no-op
-
-    auto installed = registry::load_installed();
-    for (auto const& [name, want] : cfg.toolchain) {
-        auto it = installed.find(name);
-        if (it == installed.end()) {
-            log::warnf("luban.toml [toolchain] pins {} = \"{}\", but {} is not installed. "
-                       "Run: luban bp apply main/cpp-base   # installs {} alongside others",
-                       name, want, name, name);
-            continue;
-        }
-        std::string have = it->second.version;
-        if (have != want) {
-            log::warnf("luban.toml [toolchain] pins {} = \"{}\", but installed is \"{}\". "
-                       "Build proceeds; reinstall the component to match.",
-                       name, want, have);
-        }
-    }
 }
 
 int run_build(const cli::ParsedArgs& args) {
@@ -173,8 +94,6 @@ int run_build(const cli::ParsedArgs& args) {
         return 2;
     }
 
-    check_toolchain_pins(project);
-
     std::string cmake = cmake_exe();
     // 用户没传 --preset 时（默认值 "auto"）智能挑选；显式传了用显式值。
     std::string preset_raw = args.opts.count("preset") ? args.opts.at("preset") : std::string("auto");
@@ -183,22 +102,7 @@ int run_build(const cli::ParsedArgs& args) {
 
     auto env_overrides = env_snapshot::apply_to({});
 
-    // Configure. For wasm presets we wrap with emcmake.bat so it injects the
-    // emscripten cmake toolchain file before invoking cmake. After the first
-    // configure, the toolchain file is cached in CMakeCache, so subsequent
-    // builds don't need emcmake.
-    std::vector<std::string> configure_cmd;
-    if (is_wasm_preset(preset)) {
-        std::string emcmake = emcmake_bat();
-        if (emcmake.empty()) {
-            log::errf("preset '{}' needs emscripten, but it is not installed.", preset);
-            log::err("run: luban setup --with emscripten");
-            return 2;
-        }
-        configure_cmd = {emcmake, cmake, "--preset", preset};
-    } else {
-        configure_cmd = {cmake, "--preset", preset};
-    }
+    std::vector<std::string> configure_cmd = {cmake, "--preset", preset};
     int rc = run_cmd(configure_cmd, project, env_overrides);
     if (rc != 0) {
         log::errf("cmake --preset {} returned {}", preset, rc);
@@ -240,7 +144,6 @@ void register_build() {
         "  so clangd / VS Code C/C++ extension auto-find it.\n"
         "\n"
         "  Preset auto-selection (default --preset=auto):\n"
-        "    - 'wasm' preset present    → preset 'wasm'      (wraps cmake with emcmake)\n"
         "    - vcpkg.json has deps      → preset 'default'   (uses VCPKG_ROOT)\n"
         "    - vcpkg.json deps empty    → preset 'no-vcpkg'  (no toolchain file)\n"
         "  Override with --preset=release, --preset=default, etc.";

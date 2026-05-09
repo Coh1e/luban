@@ -18,9 +18,9 @@
 
 #include "luban/version.hpp"
 
+#include "../applied_db.hpp"
 #include "../cli.hpp"
 #include "../download.hpp"
-#include "../generation.hpp"
 #include "../hash.hpp"
 #include "../log.hpp"
 #include "../msvc_env.hpp"
@@ -214,10 +214,10 @@ void wipe(const fs::path& dir) {
 // Sweep luban-owned shim files out of the shared XDG bin home.
 // The XDG bin home (~/.local/bin) is shared with uv / pipx / claude-code,
 // so we MUST NOT remove the directory itself or strip it from PATH on
-// uninstall. Instead, walk every generation's ToolRecord and remove the
-// individual `.cmd` (and twin `.exe`) files we know we wrote. The shim-
-// table at <data>/bin/.shim-table.json (legacy `luban shim` writer) is
-// also walked for the v0.x → v1.0 migration window.
+// uninstall. Instead, read <state>/luban/owned-shims.txt — appended by
+// blueprint_apply for every shim it created — and remove each entry.
+// The shim-table at <data>/bin/.shim-table.json (legacy `luban shim`
+// writer) is also walked for the v0.x → v1.0 migration window.
 //
 // Idempotent: missing files / missing state dir / missing shim-table all
 // silently no-op. Returns count of files removed for logging.
@@ -225,22 +225,12 @@ int sweep_owned_shims() {
     int removed = 0;
     std::error_code ec;
 
-    // 1. Generation snapshots — authoritative for v1.0+ blueprint shims.
-    for (int id : luban::generation::list_ids()) {
-        auto g = luban::generation::read(id);
-        if (!g) continue;
-        auto try_remove = [&](const std::string& shim_str) {
-            if (shim_str.empty()) return;
-            fs::path p(shim_str);
-            if (fs::remove(p, ec)) ++removed;
-            // .cmd was the recorded path; an .exe twin may live alongside.
-            fs::path twin = p; twin.replace_extension(".exe");
-            if (twin != p && fs::remove(twin, ec)) ++removed;
-        };
-        for (auto& [_name, rec] : g->tools) {
-            try_remove(rec.shim_path);
-            for (auto& s : rec.shim_paths_secondary) try_remove(s);
-        }
+    // 1. owned-shims.txt — authoritative for v0.5.0+ blueprint shims.
+    for (auto& shim : luban::applied_db::list_owned_shims()) {
+        if (fs::remove(shim, ec)) ++removed;
+        // .cmd was the recorded path; an .exe twin may live alongside.
+        fs::path twin = shim; twin.replace_extension(".exe");
+        if (twin != shim && fs::remove(twin, ec)) ++removed;
     }
 
     // 2. Legacy `luban shim` table at <data>/bin/.shim-table.json.
@@ -266,6 +256,7 @@ int sweep_owned_shims() {
             // will still get whatever's left.
         }
     }
+    luban::applied_db::clear();
     return removed;
 }
 

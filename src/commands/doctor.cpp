@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <span>
 #include <string>
@@ -30,9 +31,9 @@
 
 #include "../cli.hpp"
 #include "../log.hpp"
+#include "../applied_db.hpp"
 #include "../path_search.hpp"
 #include "../paths.hpp"
-#include "../registry.hpp"
 #include "../tool_list.hpp"
 
 namespace luban::commands {
@@ -93,19 +94,22 @@ Report build_report() {
         }
     }
 
-    // 3. Installed components — pulled from installed.json.
+    // 3. Applied blueprints (v0.5.0+ replaces v0.x installed.json).
     {
-        if (!fs::exists(paths::installed_json_path(), ec)) {
-            r.components.push_back({"<registry>", "missing — run `luban bp apply main/cpp-base`", false});
+        std::ifstream in(luban::applied_db::applied_path());
+        if (!in) {
+            r.components.push_back({"<applied>", "no bps applied — try `luban bp apply main/foundation`", false});
         } else {
-            auto recs = registry::load_installed();
-            if (recs.empty()) {
-                r.components.push_back({"<registry>", "empty — run `luban bp apply main/cpp-base`", false});
-            } else {
-                for (auto& [name, rec] : recs) {
-                    std::string ver = rec.version.empty() ? std::string("?") : rec.version;
-                    r.components.push_back({name, ver, true});
-                }
+            std::string line;
+            int count = 0;
+            while (std::getline(in, line)) {
+                while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+                if (line.empty()) continue;
+                r.components.push_back({line, "applied", true});
+                ++count;
+            }
+            if (count == 0) {
+                r.components.push_back({"<applied>", "applied.txt is empty", false});
             }
         }
     }
