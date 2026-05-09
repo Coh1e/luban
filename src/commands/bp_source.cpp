@@ -262,27 +262,6 @@ bool prompt_trust(const std::string& name, const std::string& url) {
     return line == "y" || line == "yes";
 }
 
-// ---- `bp source ls` ----------------------------------------------------
-
-int run_source_ls(const cli::ParsedArgs&) {
-    auto entries = sr::read();
-    if (!entries) {
-        std::fprintf(stderr, "bp source ls: %s\n", entries.error().c_str());
-        return 1;
-    }
-    if (entries->empty()) {
-        std::printf("(no bp sources registered; try `luban bp src add <url>`)\n");
-        return 0;
-    }
-    for (auto& e : *entries) {
-        std::printf("%-20s  %s\n", e.name.c_str(), e.url.c_str());
-        std::printf("  ref:    %s\n", e.ref.empty() ? "(default)" : e.ref.c_str());
-        std::printf("  commit: %s\n", e.commit.empty() ? "(unknown)" : e.commit.c_str());
-        std::printf("  added:  %s\n", e.added_at.c_str());
-    }
-    return 0;
-}
-
 // ---- `bp source add` ---------------------------------------------------
 
 int run_source_add(const cli::ParsedArgs& args) {
@@ -407,42 +386,6 @@ int run_source_add(const cli::ParsedArgs& args) {
     return 0;
 }
 
-// ---- `bp source rm` ----------------------------------------------------
-
-int run_source_rm(const cli::ParsedArgs& args) {
-    if (args.positional.empty()) {
-        std::fprintf(stderr, "bp source rm: usage: bp source rm <name>\n");
-        return 2;
-    }
-    std::string name = args.positional[0];
-    auto entries = sr::read();
-    if (!entries) {
-        std::fprintf(stderr, "bp source rm: read registry: %s\n", entries.error().c_str());
-        return 1;
-    }
-    auto it = std::find_if(entries->begin(), entries->end(),
-                           [&](const sr::SourceEntry& e) { return e.name == name; });
-    if (it == entries->end()) {
-        std::fprintf(stderr, "bp source rm: no source named `%s`\n", name.c_str());
-        return 1;
-    }
-    bool was_file_url = it->url.starts_with("file://");
-    entries->erase(it);
-    if (auto w = sr::write(*entries); !w) {
-        std::fprintf(stderr, "bp source rm: write registry: %s\n", w.error().c_str());
-        return 1;
-    }
-    // Only blow away the local dir for non-file URLs. file:// sources are
-    // live-linked to a directory we don't own; deleting it would nuke the
-    // user's actual repo.
-    if (!was_file_url) {
-        std::error_code ec;
-        fs::remove_all(paths::bp_sources_dir(name), ec);
-    }
-    std::printf("unregistered bp source `%s`\n", name.c_str());
-    return 0;
-}
-
 // ---- `bp source update` -------------------------------------------------
 
 int run_source_update(const cli::ParsedArgs& args) {
@@ -503,7 +446,7 @@ int run_source_update(const cli::ParsedArgs& args) {
 
 int run_source_dispatch(const cli::ParsedArgs& args) {
     if (args.positional.empty()) {
-        std::fprintf(stderr, "luban bp source: missing subcommand (add | rm | ls | update)\n");
+        std::fprintf(stderr, "luban bp source: missing subcommand (add | update)\n");
         return 2;
     }
     std::string sub = args.positional[0];
@@ -511,16 +454,13 @@ int run_source_dispatch(const cli::ParsedArgs& args) {
     rest.positional.erase(rest.positional.begin());
 
     if (sub == "add")    return run_source_add(rest);
-    if (sub == "rm")     return run_source_rm(rest);
-    if (sub == "ls")     return run_source_ls(rest);
-    if (sub == "list")   return run_source_ls(rest);
     if (sub == "update") return run_source_update(rest);
 
-    std::fprintf(stderr, "luban bp source: unknown subcommand `%s` (add | rm | ls | update)\n", sub.c_str());
+    std::fprintf(stderr, "luban bp source: unknown subcommand `%s` (add | update)\n", sub.c_str());
     return 2;
 }
 
-// ---- `bp search` ------------------------------------------------------
+// ---- `bp list` ------------------------------------------------------
 
 bool icontains(std::string_view hay, std::string_view needle) {
     if (needle.empty()) return true;
@@ -564,7 +504,8 @@ int run_bp_source(const cli::ParsedArgs& args) {
     return run_source_dispatch(args);
 }
 
-int run_bp_search(const cli::ParsedArgs& args) {
+int run_bp_list(const cli::ParsedArgs& args) {
+    // Optional positional acts as a substring filter; no arg = list everything.
     std::string pattern;
     if (!args.positional.empty()) pattern = args.positional[0];
     int hits = 0;
@@ -575,7 +516,7 @@ int run_bp_search(const cli::ParsedArgs& args) {
 
     auto entries = sr::read();
     if (!entries) {
-        std::fprintf(stderr, "bp search: read registry: %s\n", entries.error().c_str());
+        std::fprintf(stderr, "bp list: read registry: %s\n", entries.error().c_str());
         return 1;
     }
     for (auto& e : *entries) {
