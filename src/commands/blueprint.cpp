@@ -27,7 +27,6 @@
 #include "../blueprint_apply.hpp"
 #include "../blueprint_lock.hpp"
 #include "../blueprint_lua.hpp"
-#include "../blueprint_toml.hpp"
 #include "../cli.hpp"
 #include "../file_deploy.hpp"
 #include "../generation.hpp"
@@ -130,8 +129,6 @@ fs::path find_blueprint_source(std::string_view name) {
     auto base = blueprints_dir();
     fs::path lua_path = base / (std::string(name) + ".lua");
     if (fs::is_regular_file(lua_path, ec)) return lua_path;
-    fs::path toml_path = base / (std::string(name) + ".toml");
-    if (fs::is_regular_file(toml_path, ec)) return toml_path;
     return {};
 }
 
@@ -150,7 +147,7 @@ struct ResolvedBlueprint {
 
 namespace sr = luban::source_registry;
 
-/// Locate a `<bp-name>.{lua,toml}` inside the on-disk dir of a registered
+/// Locate a `<bp-name>.lua` inside the on-disk dir of a registered
 /// source. Returns empty path if no match.
 fs::path find_blueprint_in_source_dir(const fs::path& source_root,
                                       std::string_view name) {
@@ -158,8 +155,6 @@ fs::path find_blueprint_in_source_dir(const fs::path& source_root,
     std::error_code ec;
     fs::path lua_path = base / (std::string(name) + ".lua");
     if (fs::is_regular_file(lua_path, ec)) return lua_path;
-    fs::path toml_path = base / (std::string(name) + ".toml");
-    if (fs::is_regular_file(toml_path, ec)) return toml_path;
     return {};
 }
 
@@ -180,9 +175,9 @@ fs::path source_root_for(const sr::SourceEntry& e) {
 
 std::expected<bp::BlueprintSpec, std::string> parse_by_extension(const fs::path& src) {
     auto ext = src.extension().string();
-    if (ext == ".lua")  return luban::blueprint_lua::parse_file(src);
-    if (ext == ".toml") return luban::blueprint_toml::parse_file(src);
-    return std::unexpected("unsupported blueprint extension `" + ext + "`");
+    if (ext == ".lua") return luban::blueprint_lua::parse_file(src);
+    return std::unexpected("unsupported blueprint extension `" + ext +
+                           "` (only `.lua` is accepted; DESIGN §2 #6)");
 }
 
 std::expected<ResolvedBlueprint, std::string> resolve_blueprint(

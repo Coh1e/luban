@@ -119,7 +119,6 @@ set(LUBAN_SOURCES
     src/renderer_registry.cpp
     src/resolver_registry.cpp
     src/lua_frontend.cpp
-    src/blueprint_toml.cpp
     src/blueprint_lua.cpp
     src/blueprint_lock.cpp
     src/source_resolver.cpp
@@ -138,6 +137,7 @@ set(LUBAN_SOURCES
     src/blueprint_reconcile.cpp
     src/commands/blueprint.cpp
     src/commands/bp_source.cpp
+    src/commands/msvc.cpp
     src/commands/migrate.cpp
     ${LUBAN_EMBED_CONFIGS_HEADERS}     # ensure embed cmd runs before TU
     src/commands/doctor.cpp
@@ -255,7 +255,6 @@ if(LUBAN_BUILD_TESTS)
         tests/test_vcpkg_manifest.cpp
         tests/test_archive.cpp
         tests/test_lua_engine.cpp
-        tests/test_blueprint_toml.cpp
         tests/test_blueprint_lua.cpp
         tests/test_blueprint_lock.cpp
         tests/test_source_resolver.cpp
@@ -280,7 +279,6 @@ if(LUBAN_BUILD_TESTS)
         src/vcpkg_manifest.cpp
         src/archive.cpp
         src/lua_engine.cpp
-        src/blueprint_toml.cpp
         src/blueprint_lua.cpp
         src/blueprint_lock.cpp
         src/platform.cpp
