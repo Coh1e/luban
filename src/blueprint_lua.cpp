@@ -158,9 +158,21 @@ std::optional<std::string> opt_str_field(lua_State* L, int idx, const char* fiel
     return out;
 }
 
+// Lua-idiomatic schema is plural (`tools = { ... }`); the TOML schema is
+// singular (`[tool.X]`) and a few legacy bps mirrored TOML in their Lua
+// form too. Try plural first (matches CLAUDE.md), fall back to singular.
+// Returns true with the table on the stack; caller pops.
+bool collection_field(lua_State* L, int idx, const char* plural,
+                      const char* singular) {
+    lua_getfield(L, idx, plural);
+    if (lua_type(L, -1) == LUA_TTABLE) return true;
+    lua_pop(L, 1);
+    lua_getfield(L, idx, singular);
+    return lua_type(L, -1) == LUA_TTABLE;
+}
+
 void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "tool");
-    if (!lua_istable(L, -1)) {
+    if (!collection_field(L, blueprint_idx, "tools", "tool")) {
         lua_pop(L, 1);
         return;
     }
@@ -179,15 +191,35 @@ void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
 
         bp::ToolSpec tool;
         tool.name = tool_name;
-        if (auto v = opt_str_field(L, tool_idx, "source"))  tool.source  = *v;
-        if (auto v = opt_str_field(L, tool_idx, "version")) tool.version = *v;
-        if (auto v = opt_str_field(L, tool_idx, "bin"))     tool.bin     = *v;
-        // no_shim — boolean, optional, default false. Read directly via
-        // lua_getfield since opt_str_field is string-only and a tiny
-        // helper for one bool field would be overkill.
+        if (auto v = opt_str_field(L, tool_idx, "source"))        tool.source        = *v;
+        if (auto v = opt_str_field(L, tool_idx, "version"))       tool.version       = *v;
+        if (auto v = opt_str_field(L, tool_idx, "bin"))           tool.bin           = *v;
+        if (auto v = opt_str_field(L, tool_idx, "post_install"))  tool.post_install  = *v;
+        if (auto v = opt_str_field(L, tool_idx, "external_skip")) tool.external_skip = *v;
+        if (auto v = opt_str_field(L, tool_idx, "shim_dir"))      tool.shim_dir      = *v;
+
+        // no_shim — boolean, optional, default false.
         lua_getfield(L, tool_idx, "no_shim");
         if (lua_isboolean(L, -1)) tool.no_shim = lua_toboolean(L, -1) != 0;
         lua_pop(L, 1);
+
+        // shims = { "bin/a.exe", "bin/b.exe" } — string array of explicit
+        // shim paths relative to the artifact root. Composes with shim_dir.
+        lua_getfield(L, tool_idx, "shims");
+        if (lua_istable(L, -1)) {
+            int shims_idx = lua_gettop(L);
+            int n = static_cast<int>(luaL_len(L, shims_idx));
+            for (int i = 1; i <= n; ++i) {
+                lua_geti(L, shims_idx, i);
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    size_t len = 0;
+                    const char* s = lua_tolstring(L, -1, &len);
+                    tool.shims.emplace_back(s, len);
+                }
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);  // pop shims
 
         // platforms = { { target=, url=, sha256=, bin= }, ... }
         lua_getfield(L, tool_idx, "platforms");
@@ -226,8 +258,7 @@ void parse_tools(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
 }
 
 void parse_configs(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "config");
-    if (!lua_istable(L, -1)) {
+    if (!collection_field(L, blueprint_idx, "configs", "config")) {
         lua_pop(L, 1);
         return;
     }
@@ -255,8 +286,7 @@ void parse_configs(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
 }
 
 void parse_files(lua_State* L, int blueprint_idx, ParseCtx& ctx) {
-    lua_getfield(L, blueprint_idx, "file");
-    if (!lua_istable(L, -1)) {
+    if (!collection_field(L, blueprint_idx, "files", "file")) {
         lua_pop(L, 1);
         return;
     }
