@@ -33,7 +33,7 @@ int build_project(const fs::path& project_dir);
 namespace {
 
 // Resolve cmake.exe via the v0.5.0+ shim at ~/.local/bin/cmake.cmd
-// (installed by `luban bp apply main/cpp-toolchain`). Falls back to the
+// (installed by `luban bp apply main/bootstrap`). Falls back to the
 // legacy <data>/bin/ shim during the v0.x → v1.0 migration window, then
 // to plain "cmake" on PATH.
 std::string cmake_exe() {

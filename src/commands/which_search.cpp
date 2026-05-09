@@ -52,7 +52,7 @@ int run_run(const cli::ParsedArgs& a) {
 
     if (exe.empty() || !fs::exists(exe)) {
         log::errf("'{}' not found in PATH (with luban toolchain dirs prepended)", cmd_name);
-        log::info("hint: `luban bp apply main/cpp-toolchain` to install the toolchain");
+        log::info("hint: `luban bp apply main/bootstrap` to install the toolchain");
         return 127;
     }
 

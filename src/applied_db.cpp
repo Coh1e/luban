@@ -14,7 +14,7 @@ namespace luban::applied_db {
 namespace {
 
 // Strip `<source>/` qualifier from a bp name. `apply` accepts qualified
-// names (`main/foundation`); the applied set stores the bare name.
+// names (`main/bootstrap`); the applied set stores the bare name.
 std::string_view strip_source(std::string_view s) {
     auto slash = s.find('/');
     return (slash != std::string_view::npos) ? s.substr(slash + 1) : s;

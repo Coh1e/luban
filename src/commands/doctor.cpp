@@ -98,7 +98,7 @@ Report build_report() {
     {
         std::ifstream in(luban::applied_db::applied_path());
         if (!in) {
-            r.components.push_back({"<applied>", "no bps applied — try `luban bp apply main/foundation`", false});
+            r.components.push_back({"<applied>", "no bps applied — try `luban bp apply main/bootstrap`", false});
         } else {
             std::string line;
             int count = 0;

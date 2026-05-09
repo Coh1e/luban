@@ -495,7 +495,7 @@ void register_blueprint() {
     c.forward_rest = false;
     c.examples = {
         "luban bp source add Coh1e/luban-bps --name main\tRegister a remote bp source",
-        "luban bp apply main/foundation\tApply the foundation bp",
+        "luban bp apply main/bootstrap\tApply the foundation bp",
         "luban bp list\tList user-local + source-available bps",
     };
     c.run = run_blueprint;

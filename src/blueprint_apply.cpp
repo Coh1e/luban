@@ -148,7 +148,7 @@ std::expected<ApplyResult, std::string> apply(const bp::BlueprintSpec& spec,
     // deps; explicit beats clever for the layered foundation/cpp-toolchain
     // story.
     //
-    // Qualifier handling: bp authors write `requires = ["main/foundation"]`
+    // Qualifier handling: bp authors write `requires = ["main/bootstrap"]`
     // (qualified) but applied_db stores bare names. is_applied strips
     // `<source>/` qualifier on both sides, so the comparison is bare-vs-bare.
     if (!spec.meta.requires_.empty()) {

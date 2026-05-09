@@ -332,16 +332,16 @@ if (Test-OnUserPath $installDir) {
 }
 
 # ---- bootstrap (idempotent) ------------------------------------------------
-# luban.exe embeds zero blueprints (议题 AG); the foundation + extras live
-# in Coh1e/luban-bps.
+# luban.exe embeds zero blueprints; everything lives in Coh1e/luban-bps.
 #
-# Two-phase install:
-#   1. main/foundation    — git + ssh + gcm + lfs. ALWAYS pre-applied;
-#                           it's the universal prereq of practically every
-#                           other bp (including cpp-toolchain). No prompt.
-#   2. main/cpp-toolchain — Clang + cmake + ninja + vcpkg. PROMPTED, since
-#                           someone installing luban for dotfile / CLI use
-#                           may not want a 270-binary C++ stack on first run.
+# Two-phase install — both prompted (default Y), since both are sizeable:
+#   1. main/bootstrap     ~700 MiB — mingit + lfs + gcm + llvm-mingw +
+#                                    cmake + ninja + vcpkg. The C++
+#                                    workshop foundation.
+#   2. main/onboarding    ~150 MiB — pwsh 7 + Maple Mono font + starship +
+#                                    zoxide + fd + ripgrep + pwsh profile +
+#                                    starship.toml + Windows Terminal theme.
+#                                    Personal shell layer; requires bootstrap.
 $lubanExe = Join-Path $installDir 'luban.exe'
 
 # DESIGN §5 dropped `bp src ls` and the applied-set view from `bp ls`
@@ -375,7 +375,9 @@ function Test-BpApplied($bp) {
 
 $mainRegistered = Test-BpSourceRegistered 'main'
 
-# Phase 1: ensure main is registered + foundation is applied. No prompt.
+# Step 0: ensure main is registered. No prompt — the registration itself
+# is metadata-only (writes ~/.config/luban/sources.toml + caches the bp
+# source repo to ~/.local/share/luban/bp_sources/main/).
 Write-Host ""
 if (-not $mainRegistered) {
     Write-Host "→ Registering Coh1e/luban-bps as `main` (one-time, no prompt)..."
@@ -383,23 +385,29 @@ if (-not $mainRegistered) {
     $mainRegistered = $true
 }
 
-if (Test-BpApplied 'foundation') {
-    Write-Host "→ main/foundation already applied — skipping."
+# Phase 1: prompt for bootstrap (the C++ workshop foundation).
+Write-Host ""
+if (Test-BpApplied 'bootstrap') {
+    Write-Host "→ main/bootstrap already applied — skipping."
 } else {
-    Write-Host "→ Applying main/foundation (mingit + lfs + gcm + openssh)..."
-    Invoke-LubanLive @('bp', 'apply', 'main/foundation')
+    $ans = Read-Host "Apply main/bootstrap now? (mingit + cmake + ninja + vcpkg + llvm-mingw, ~700 MB) [Y/n]"
+    if ($ans -eq '' -or $ans -match '^[Yy]') {
+        Invoke-LubanLive @('bp', 'apply', 'main/bootstrap')
+    } else {
+        Write-Host "Later, run:  luban bp apply main/bootstrap"
+    }
 }
 
-# Phase 2: prompt for cpp-toolchain.
+# Phase 2: prompt for onboarding (the personal shell layer).
 Write-Host ""
-if (Test-BpApplied 'cpp-toolchain') {
-    Write-Host "main/cpp-toolchain already applied — bootstrap done."
+if (Test-BpApplied 'onboarding') {
+    Write-Host "main/onboarding already applied — bootstrap done."
 } else {
-    $ans = Read-Host "Apply main/cpp-toolchain now? (Clang + cmake + ninja + vcpkg, ~600 MB) [Y/n]"
+    $ans = Read-Host "Apply main/onboarding now? (pwsh 7 + Maple Mono + starship/zoxide/fd/rg + WT theme, ~150 MB) [Y/n]"
     if ($ans -eq '' -or $ans -match '^[Yy]') {
-        Invoke-LubanLive @('bp', 'apply', 'main/cpp-toolchain')
+        Invoke-LubanLive @('bp', 'apply', 'main/onboarding')
     } else {
-        Write-Host "Later, run:  luban bp apply main/cpp-toolchain"
+        Write-Host "Later, run:  luban bp apply main/onboarding"
     }
 }
 
