@@ -89,13 +89,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # luac.c (CLI entrypoints) were intentionally excluded when vendoring.
 file(GLOB LUA54_SOURCES "${CMAKE_SOURCE_DIR}/third_party/lua54/*.c")
 
-# QuickJS-NG (vendored at third_party/quickjs/). Same policy as Lua: we
-# embed the engine, not the standalone CLI; qjs.c / qjsc.c / quickjs-libc.c
-# were excluded when vendoring (luban implements its own sandbox-friendly
-# host API in src/qjs_engine.cpp). JS is a second-class scripting layer
-# in luban — see docs/DESIGN.md §10.
-file(GLOB QJS_SOURCES "${CMAKE_SOURCE_DIR}/third_party/quickjs/*.c")
-
 set(LUBAN_SOURCES
     src/main.cpp
     src/cli.cpp
@@ -120,10 +113,8 @@ set(LUBAN_SOURCES
     src/path_search.cpp
     third_party/miniz.c
     ${LUA54_SOURCES}
-    ${QJS_SOURCES}
     src/lua_engine.cpp
     src/lua_engine_download.cpp
-    src/qjs_engine.cpp
     src/progress.cpp
     src/renderer_registry.cpp
     src/resolver_registry.cpp
@@ -133,7 +124,6 @@ set(LUBAN_SOURCES
     src/blueprint_lock.cpp
     src/source_resolver.cpp
     src/source_resolver_github.cpp
-    src/source_resolver_pwsh.cpp
     src/source_registry.cpp
     src/store.cpp
     src/store_fetch.cpp
@@ -154,21 +144,10 @@ set(LUBAN_SOURCES
     src/commands/env.cpp
     src/commands/new_project.cpp
     src/commands/build_project.cpp
-    src/commands/shim_cmd.cpp
     src/commands/add.cpp
-    src/commands/target.cpp
     src/commands/which_search.cpp
     src/commands/describe.cpp
     src/commands/self.cpp
-    src/commands/completion.cpp
-    src/commands/doc.cpp
-    src/commands/check.cpp
-    src/commands/test_cmd.cpp
-    src/commands/clean.cpp
-    src/commands/fmt.cpp
-    src/commands/tree.cpp
-    src/commands/update.cpp
-    src/commands/outdated.cpp
     ${LUBAN_EMBED_HELP_HEADERS}    # ensure custom_command runs before the TU
 )
 
@@ -178,7 +157,6 @@ target_include_directories(luban PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/third_party
     ${CMAKE_SOURCE_DIR}/third_party/lua54
-    ${CMAKE_SOURCE_DIR}/third_party/quickjs
     ${CMAKE_BINARY_DIR}/gen
 )
 
@@ -188,20 +166,14 @@ else()
     target_compile_options(luban PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Suppress warnings on vendored upstream C sources (Lua + QuickJS). They're
+# Suppress warnings on vendored upstream C sources (Lua). They're
 # auditable but we don't keep up with their warning-pedantic level. Apply
 # per-file rather than globally so our own code stays loud.
 if(MSVC)
-    set_source_files_properties(${LUA54_SOURCES} ${QJS_SOURCES}
-        PROPERTIES COMPILE_FLAGS "/w")
+    set_source_files_properties(${LUA54_SOURCES} PROPERTIES COMPILE_FLAGS "/w")
 else()
-    set_source_files_properties(${LUA54_SOURCES} ${QJS_SOURCES}
-        PROPERTIES COMPILE_FLAGS "-w")
+    set_source_files_properties(${LUA54_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
 endif()
-
-# QuickJS uses computed gotos (gcc/clang) on POSIX for fast bytecode dispatch
-# but falls back to switch on MSVC. The vendored quickjs.h handles this via
-# QJS_CONFIG_USE_COMPUTED_GOTOS auto-detection — no extra defines needed here.
 
 if(WIN32)
     # Win32 APIs used: SHGetKnownFolderPath (shell32), CoTaskMemFree (ole32),
@@ -283,7 +255,6 @@ if(LUBAN_BUILD_TESTS)
         tests/test_vcpkg_manifest.cpp
         tests/test_archive.cpp
         tests/test_lua_engine.cpp
-        tests/test_qjs_engine.cpp
         tests/test_blueprint_toml.cpp
         tests/test_blueprint_lua.cpp
         tests/test_blueprint_lock.cpp
@@ -309,7 +280,6 @@ if(LUBAN_BUILD_TESTS)
         src/vcpkg_manifest.cpp
         src/archive.cpp
         src/lua_engine.cpp
-        src/qjs_engine.cpp
         src/blueprint_toml.cpp
         src/blueprint_lua.cpp
         src/blueprint_lock.cpp
@@ -337,13 +307,11 @@ if(LUBAN_BUILD_TESTS)
         ${LUBAN_EMBED_CONFIGS_HEADERS}
         third_party/miniz.c
         ${LUA54_SOURCES}
-        ${QJS_SOURCES}
     )
     target_include_directories(luban-tests PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/third_party
         ${CMAKE_SOURCE_DIR}/third_party/lua54
-        ${CMAKE_SOURCE_DIR}/third_party/quickjs
         ${CMAKE_BINARY_DIR}/gen
     )
     if(MSVC)

@@ -1,13 +1,12 @@
-// `luban add <pkg>[@version]` / `luban remove <pkg>` / `luban sync`
+// `luban add <pkg>[@version]` / `luban remove <pkg>`
 //
-// Plan §4 + §11.2 rule 1：toolchain 名（cmake/ninja/clang 等）拒绝加进 vcpkg.json，
-// 引导到 `bp apply main/cpp-base`（v1.0 toolchain 入口）。
+// 不变量 8：toolchain 名（cmake/ninja/clang 等）拒绝加进 vcpkg.json，
+// 引导到 `bp apply main/cpp-toolchain`。
 //
-// 三个动词共用：
+// 共用：
 //   1) 找项目根（cwd 起向上找 vcpkg.json）
-//   2) 读 vcpkg.json
-//   3) （add/remove only）改 vcpkg.json
-//   4) 重新生成 luban.cmake
+//   2) 读 vcpkg.json → 改 → 写
+//   3) 重新生成 luban.cmake
 
 #include <algorithm>
 #include <array>
@@ -114,14 +113,6 @@ int run_remove(const cli::ParsedArgs& a) {
     return 0;
 }
 
-int run_sync(const cli::ParsedArgs&) {
-    fs::path proj = find_project_root();
-    log::stepf("syncing luban.cmake in {}", proj.string());
-    regenerate(proj);
-    log::ok("regenerated luban.cmake from vcpkg.json + luban.toml");
-    return 0;
-}
-
 }  // namespace
 
 void register_add() {
@@ -159,24 +150,6 @@ void register_remove() {
         "luban remove fmt\tRemove fmt from vcpkg.json + luban.cmake",
     };
     c.run = run_remove;
-    cli::register_subcommand(std::move(c));
-}
-
-void register_sync() {
-    cli::Subcommand c;
-    c.name = "sync";
-    c.help = "regenerate luban.cmake from vcpkg.json + luban.toml";
-    c.group = "dep";
-    c.long_help =
-        "  Re-read vcpkg.json + luban.toml and rewrite luban.cmake. Useful when:\n"
-        "    - someone hand-edited vcpkg.json\n"
-        "    - just pulled a project from git\n"
-        "    - changed luban.toml [scaffold] warnings = strict\n"
-        "    - manually deleted luban.cmake";
-    c.examples = {
-        "luban sync\tRegenerate luban.cmake",
-    };
-    c.run = run_sync;
     cli::register_subcommand(std::move(c));
 }
 

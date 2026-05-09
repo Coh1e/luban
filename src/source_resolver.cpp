@@ -30,14 +30,11 @@ using GithubResolverFn =
 
 namespace {
 GithubResolverFn g_github_fn = nullptr;
-GithubResolverFn g_pwsh_fn   = nullptr;  // pwsh-module: scheme
 }  // namespace
 
 void set_github_resolver(GithubResolverFn fn) { g_github_fn = fn; }
-void set_pwsh_module_resolver(GithubResolverFn fn) { g_pwsh_fn = fn; }
 
-GithubResolverFn github_resolver()      { return g_github_fn; }
-GithubResolverFn pwsh_module_resolver() { return g_pwsh_fn; }
+GithubResolverFn github_resolver() { return g_github_fn; }
 
 }  // namespace detail
 
@@ -139,19 +136,13 @@ std::expected<bpl::LockedTool, std::string> resolve_with_registry(
             "exclude it; production luban.exe should always have it)");
     }
 
-    if (scheme == "pwsh-module") {
-        if (auto fn = detail::pwsh_module_resolver()) return fn(spec);
-        return std::unexpected(
-            "pwsh-module: source resolver not linked in this build");
-    }
-
     if (scheme.empty()) {
         return std::unexpected("tool `" + spec.name + "`: malformed source `" +
                                src + "` (expected scheme:body, e.g. github:owner/repo)");
     }
 
     return std::unexpected("tool `" + spec.name + "`: unknown source scheme `" +
-                           scheme + "` (supported: github, pwsh-module" +
+                           scheme + "` (supported: github" +
                            (registry && !registry->empty() ? ", + bp-registered" : "") +
                            ")");
 }

@@ -74,9 +74,6 @@ using GithubResolverFn =
     std::expected<luban::blueprint_lock::LockedTool, std::string> (*)(
         const luban::blueprint::ToolSpec&);
 void set_github_resolver(GithubResolverFn fn);
-
-using PwshModuleResolverFn = GithubResolverFn;
-void set_pwsh_module_resolver(PwshModuleResolverFn fn);
 }  // namespace detail
 
 }  // namespace luban::source_resolver
