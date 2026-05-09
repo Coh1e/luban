@@ -11,7 +11,7 @@
 //      uninstall` can sweep them without nuking sibling tools that
 //      uv / pipx / claude-code put there).
 //
-// Both are append-only line-per-record text files under <state>/luban/.
+// Both are append-only line-per-record text files under <state>/.
 // Idempotent re-applies are handled by dedup on read.
 
 #pragma once
@@ -25,11 +25,11 @@ namespace luban::applied_db {
 
 namespace fs = std::filesystem;
 
-// `<state>/luban/applied.txt` — one bp name per line. Written by apply
+// `<state>/applied.txt` — one bp name per line. Written by apply
 // after a successful run; read by apply's `meta.requires` preflight.
 fs::path applied_path();
 
-// `<state>/luban/owned-shims.txt` — one absolute shim path per line.
+// `<state>/owned-shims.txt` — one absolute shim path per line.
 // Written by apply after each shim install; read by `self uninstall`
 // to sweep luban-owned files out of the shared XDG bin dir.
 fs::path owned_shims_path();

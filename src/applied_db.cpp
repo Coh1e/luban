@@ -20,13 +20,9 @@ std::string_view strip_source(std::string_view s) {
     return (slash != std::string_view::npos) ? s.substr(slash + 1) : s;
 }
 
-fs::path luban_state_root() {
-    return paths::state_dir() / "luban";
-}
-
 bool ensure_state_root() {
     std::error_code ec;
-    fs::create_directories(luban_state_root(), ec);
+    fs::create_directories(paths::state_dir(), ec);
     return !ec;
 }
 
@@ -55,8 +51,12 @@ bool append_line(const fs::path& p, std::string_view line) {
 
 }  // namespace
 
-fs::path applied_path()      { return luban_state_root() / "applied.txt"; }
-fs::path owned_shims_path()  { return luban_state_root() / "owned-shims.txt"; }
+// paths::state_dir() already has the luban app-name suffix
+// (~/.local/state/luban on POSIX, %LOCALAPPDATA%/luban/State on Windows),
+// so drop both files directly there — siblings of installed.json /
+// last_sync / logs/.
+fs::path applied_path()      { return paths::state_dir() / "applied.txt"; }
+fs::path owned_shims_path()  { return paths::state_dir() / "owned-shims.txt"; }
 
 bool is_applied(std::string_view name) {
     std::string bare(strip_source(name));

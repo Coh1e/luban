@@ -302,12 +302,18 @@ function Test-OnUserPath($dir) {
 # routes stderr through PowerShell's redirection layer which buffers it
 # until the child exits — same root cause as the curl progress problem
 # above. Start-Process -NoNewWindow keeps the inherited handles raw.
+#
+# Param name is `$LubanArgs` (NOT `$Args`) — `$args` is a PowerShell
+# auto-variable, and binding a param to it silently swallows the array
+# in some PS 5.x / 7.x interactions. Caused install.ps1 to spawn
+# `luban.exe` with zero arguments and print top-level help instead of
+# running the requested subcommand. Renaming is the documented fix.
 function Invoke-LubanLive {
-    param([string[]]$Args)
-    $proc = Start-Process -FilePath $lubanExe -ArgumentList $Args `
+    param([string[]]$LubanArgs)
+    $proc = Start-Process -FilePath $lubanExe -ArgumentList $LubanArgs `
         -NoNewWindow -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
-        throw "luban.exe exited $($proc.ExitCode): $($Args -join ' ')"
+        throw "luban.exe exited $($proc.ExitCode): $($LubanArgs -join ' ')"
     }
 }
 
@@ -338,20 +344,33 @@ if (Test-OnUserPath $installDir) {
 #                           may not want a 270-binary C++ stack on first run.
 $lubanExe = Join-Path $installDir 'luban.exe'
 
+# DESIGN §5 dropped `bp src ls` and the applied-set view from `bp ls`
+# in v1.0; consult the on-disk state files directly instead.
+#
+#   sources.toml    = registered bp sources    (config_dir/sources.toml)
+#   applied.txt     = applied bp names         (state_dir/applied.txt)
+#
+# Paths are hardcoded to the Windows XDG resolution (config_dir =
+# %USERPROFILE%\.config\luban; state_dir = %USERPROFILE%\.local\state\luban)
+# rather than re-implementing the XDG_*_HOME fallback ladder in PS.
 function Test-BpSourceRegistered($name) {
-    try {
-        $out = & $lubanExe bp src ls 2>$null
-        if ($LASTEXITCODE -ne 0) { return $false }
-        return ($out | Select-String -SimpleMatch -Pattern $name -Quiet)
-    } catch { return $false }
+    $sources = Join-Path $env:USERPROFILE ".config\luban\sources.toml"
+    if (-not (Test-Path $sources)) { return $false }
+    # Source entries are "[[source]]" tables with `name = "<name>"`. Match
+    # the literal name = line so substrings of other names don't false-match.
+    $needle = 'name = "{0}"' -f $name
+    return [bool](Select-String -Path $sources -SimpleMatch -Pattern $needle -Quiet)
 }
 
 function Test-BpApplied($bp) {
-    try {
-        $out = & $lubanExe bp ls 2>$null
-        if ($LASTEXITCODE -ne 0) { return $false }
-        return ($out | Select-String -SimpleMatch -Pattern $bp -Quiet)
-    } catch { return $false }
+    $applied = Join-Path $env:USERPROFILE ".local\state\luban\applied.txt"
+    if (-not (Test-Path $applied)) { return $false }
+    # applied.txt is one bare bp name per line. Compare exact lines so
+    # `foundation` doesn't match `foundation-extras`.
+    foreach ($line in Get-Content $applied) {
+        if ($line.Trim() -eq $bp) { return $true }
+    }
+    return $false
 }
 
 $mainRegistered = Test-BpSourceRegistered 'main'

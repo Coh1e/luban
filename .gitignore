@@ -6,6 +6,11 @@ out/
 *.user
 .tmp-toolchain/
 
+# Project-local sandboxed dev toolchain — git/cmake/ninja/mingw downloaded
+# into .toolchain/ so testing broken bps can't bork the contributor's
+# global luban store. Activate via:  scripts/.toolchain-env.ps1
+.toolchain/
+
 # CMake
 CMakeUserPresets.json
 compile_commands.json
