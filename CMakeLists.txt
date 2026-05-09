@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 0.4.4
+    VERSION 0.5.0
     LANGUAGES CXX C)
 
 # MSVC: link the C runtime statically (/MT, /MTd) so the resulting exe
@@ -138,7 +138,6 @@ set(LUBAN_SOURCES
     src/commands/blueprint.cpp
     src/commands/bp_source.cpp
     src/commands/msvc.cpp
-    src/commands/migrate.cpp
     ${LUBAN_EMBED_CONFIGS_HEADERS}     # ensure embed cmd runs before TU
     src/commands/doctor.cpp
     src/commands/env.cpp
