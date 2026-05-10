@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 1.0.5
+    VERSION 1.0.6
     LANGUAGES CXX C)
 
 # Windows-only target (DESIGN §1; v1.0.5 dropped POSIX support entirely).
