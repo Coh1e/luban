@@ -471,7 +471,8 @@ Ayu Mirage theme
 luban 初次安装不必须依赖 install.ps1。
 
 用户可以手动下载 luban.exe。
-之后 luban 自己具备下载能力（curl.exe subprocess，Win10 1803+ 自带）。
+之后 luban 自己具备下载能力（v1.0.7+：in-process libcurl + Schannel + HTTP/2 强制；
+FetchContent 在 luban 构建时拉源码，最终二进制全静态链）。
 
 实现目标：
 

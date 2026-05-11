@@ -45,12 +45,11 @@ struct DownloadOptions {
 
     // (v0.3.0 dead, kept for ABI / call-site stability) Chunked HTTP Range
     // download. v0.2.x used these to multi-stream large downloads via
-    // WinHTTP's per-thread Range GET. v0.3.0 replaced WinHTTP with
-    // curl.exe subprocess, which is single-stream by design (curl
-    // negotiates h1.1/h2/h3 per host correctly enough that multi-stream
-    // is no longer the fastest path; on GitHub's CDN it was actively
-    // counter-productive — per-IP throttle hit ~150 KB/s aggregate at
-    // 4 streams vs ~5 MB/s on 1).
+    // WinHTTP. v0.3.0 went to a curl.exe subprocess (single-stream),
+    // v1.0.7 to in-process libcurl with HTTP/2 forced — h2 multiplexes
+    // inside one TCP, so multi-stream is not just unnecessary but
+    // actively counter-productive (per-IP throttle: ~150 KB/s aggregate
+    // at 4 parallel h1.1 streams vs ~5 MB/s on 1 h2 stream).
     //
     // Both fields are now ignored. Existing call sites that set
     // parallel_chunks = 1 / 4 still compile but the request goes

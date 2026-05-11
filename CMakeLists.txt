@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(luban
-    VERSION 1.0.6
+    VERSION 1.0.7
     LANGUAGES CXX C)
 
 # Windows-only target (DESIGN §1; v1.0.5 dropped POSIX support entirely).
@@ -99,6 +99,105 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # luac.c (CLI entrypoints) were intentionally excluded when vendoring.
 file(GLOB LUA54_SOURCES "${CMAKE_SOURCE_DIR}/third_party/lua54/*.c")
 
+# ---- libcurl + nghttp2 (fetched at configure time) -----------------------
+# v1.0.7 swapped the curl.exe subprocess backend for in-process libcurl
+# (DESIGN §1 amendment 2026-05-12). Rationale: lock the curl version
+# (System32 curl varies by Windows build), force HTTP/2 negotiation
+# (VN/CN network notes — HTTP/2 is the protocol that wins under throttle),
+# get real-time CURLOPT_XFERINFOFUNCTION progress instead of polling
+# `dest` size, drop subprocess spawn cost. SSL backend: Schannel only —
+# uses Windows-native crypt32/secur32, zero added vendored crypto, keeps
+# invariant 7 (static link, no DLL deps) satisfied.
+#
+# zlib is intentionally NOT pulled in: GitHub release URLs serve already-
+# compressed archives (.zip/.tar.xz/.tar.gz) without Content-Encoding gzip,
+# so libcurl's decompression layer would never engage. Skipping it saves
+# the FetchContent surface + ~200 KiB of binary.
+include(FetchContent)
+
+# nghttp2: HTTP/2 framing layer. libcurl 8.x doesn't bundle an HTTP/2
+# implementation; without nghttp2 it negotiates h2 → falls back to h1.1.
+# ENABLE_LIB_ONLY drops app/HPACK tools/examples. BUILD_STATIC_LIBS=ON +
+# BUILD_SHARED_LIBS=OFF produce only the `nghttp2_static` archive — must be
+# set BEFORE FetchContent_MakeAvailable, otherwise nghttp2 picks defaults
+# (shared, no static) and the link of luban fails with -lnghttp2_static.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(ENABLE_LIB_ONLY ON CACHE BOOL "" FORCE)
+set(ENABLE_DOC OFF CACHE BOOL "" FORCE)
+set(ENABLE_FAILMALLOC OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+# Use the release tarball, not GIT_REPOSITORY: nghttp2's git tree pulls
+# in munit / mruby / neverbleed submodules (~50 MB) that we don't need,
+# and CMake's FetchContent + GIT_SHALLOW + tag has a known "HEAD0" bug
+# in some cmake versions when re-checking out tagged refs.
+FetchContent_Declare(nghttp2
+    URL https://github.com/nghttp2/nghttp2/releases/download/v1.64.0/nghttp2-1.64.0.tar.xz
+    URL_HASH SHA256=88bb94c9e4fd1c499967f83dece36a78122af7d5fb40da2019c56b9ccc6eb9dd
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(nghttp2)
+
+# Curl's FindNGHTTP2.cmake runs find_path/find_library against system paths
+# and won't see the FetchContent-built nghttp2 in build/_deps. Pre-seed
+# the input variables so find_package short-circuits to our build:
+#  * INCLUDE_DIR points at source `lib/includes/` (nghttp2.h) AND binary
+#    `lib/includes/` (generated nghttp2ver.h with the configured version).
+#  * LIBRARY is the in-tree static target name; target_link_libraries
+#    resolves it to the right .a/.lib at link time.
+set(NGHTTP2_INCLUDE_DIR
+    "${nghttp2_SOURCE_DIR}/lib/includes;${nghttp2_BINARY_DIR}/lib/includes"
+    CACHE STRING "" FORCE)
+set(NGHTTP2_LIBRARY nghttp2_static CACHE STRING "" FORCE)
+# FindNGHTTP2.cmake reads NGHTTP2_VERSION from the include dir at find time;
+# the value is informational only, but setting it suppresses a noisy probe.
+set(NGHTTP2_VERSION 1.64.0 CACHE STRING "" FORCE)
+
+# libcurl: HTTP client.
+# - BUILD_SHARED_LIBS OFF + CURL_STATICLIB ON → only the static archive,
+#   and consumers including <curl/curl.h> get CURL_STATICLIB defined via
+#   the imported target's INTERFACE_COMPILE_DEFINITIONS.
+# - HTTP_ONLY ON drops FTP/SMTP/IMAP/etc. — luban only ever does
+#   HTTPS GET and HEAD; the rest is dead binary weight.
+# - CURL_USE_SCHANNEL ON, all other SSL backends OFF: Windows-native TLS,
+#   no OpenSSL vendor needed.
+# - USE_NGHTTP2 ON wires the FetchContent-built nghttp2 above.
+# - CURL_DISABLE_ALTSVC/SRP/MIME/etc. trim further; these aren't on the
+#   GitHub releases path luban hits.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CURL_STATICLIB ON CACHE BOOL "" FORCE)
+set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+set(BUILD_LIBCURL_DOCS OFF CACHE BOOL "" FORCE)
+set(BUILD_MISC_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_CURL_MANUAL OFF CACHE BOOL "" FORCE)
+set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+set(CURL_USE_SCHANNEL ON CACHE BOOL "" FORCE)
+set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
+set(CURL_USE_MBEDTLS OFF CACHE BOOL "" FORCE)
+set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
+set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)
+set(CURL_USE_LIBIDN2 OFF CACHE BOOL "" FORCE)
+set(USE_NGHTTP2 ON CACHE BOOL "" FORCE)
+set(CURL_ZLIB OFF CACHE BOOL "" FORCE)
+set(CURL_BROTLI OFF CACHE BOOL "" FORCE)
+set(CURL_ZSTD OFF CACHE BOOL "" FORCE)
+set(CURL_DISABLE_ALTSVC ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_KERBEROS_AUTH ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_NTLM ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_SRP ON CACHE BOOL "" FORCE)
+set(ENABLE_UNIX_SOCKETS OFF CACHE BOOL "" FORCE)
+set(ENABLE_THREADED_RESOLVER ON CACHE BOOL "" FORCE)
+# Skip the install/export target machinery — we consume libcurl as a
+# build-tree dependency only. Without this, curl's CMakeLists tries to
+# install libcurl_static + reference its transitive nghttp2_static, and
+# CMake errors because nghttp2 is in a different export set.
+set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
+set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+FetchContent_Declare(curl
+    URL https://github.com/curl/curl/releases/download/curl-8_10_1/curl-8.10.1.tar.xz
+    URL_HASH SHA256=73a4b0e99596a09fa5924a4fb7e4b995a85fda0d18a2c02ab9cf134bebce04ee
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(curl)
+
 set(LUBAN_SOURCES
     src/main.cpp
     src/cli.cpp
@@ -112,7 +211,7 @@ set(LUBAN_SOURCES
     src/win_path.cpp
     src/hash.cpp
     src/download.cpp
-    src/curl_subprocess.cpp
+    src/libcurl_backend.cpp
     src/archive.cpp
     src/luban_toml.cpp
     src/vcpkg_manifest.cpp
@@ -188,9 +287,22 @@ endif()
 # GetEnvironmentVariableW / CreateProcessW / GetStdHandle / SetConsoleMode (kernel32),
 # RegOpenKeyExW / RegQueryValueExW / RegSetValueExW (advapi32),
 # SendMessageTimeoutW (user32).
-# winhttp removed in v0.3.0 — download path uses curl.exe subprocess
-# (src/curl_subprocess.cpp). bcrypt stays for hash.cpp's BCryptHash*.
-target_link_libraries(luban PRIVATE shell32 ole32 advapi32 user32 bcrypt)
+# bcrypt: hash.cpp's BCryptHash*.
+# crypt32/secur32/ws2_32/wldap32/normaliz: Schannel-backend libcurl static.
+#   crypt32   — certificate APIs (CertFindCertificateInStore, etc.)
+#   secur32   — Schannel SSPI (InitializeSecurityContext / Schannel package)
+#   ws2_32    — Winsock 2 (sockets)
+#   wldap32   — LDAP transport (linked even with HTTP_ONLY because curl's
+#               OS-detection in CMakeLists keeps it; no actual code path
+#               from luban side reaches it)
+#   normaliz  — IDN normalization (curl's punycode path; harmless to link
+#               even with USE_LIBIDN2=OFF since curl still references it
+#               on Win32)
+target_link_libraries(luban PRIVATE
+    shell32 ole32 advapi32 user32 bcrypt
+    CURL::libcurl
+    crypt32 secur32 ws2_32 wldap32 normaliz
+)
 target_compile_definitions(luban PRIVATE
     UNICODE
     _UNICODE

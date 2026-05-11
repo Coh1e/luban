@@ -95,12 +95,12 @@ std::expected<FetchResult, std::string> fetch(std::string_view artifact_id,
     download::DownloadOptions dlopts;
     dlopts.expected_hash = *hash_spec;
     dlopts.label = opts.label.empty() ? std::string(artifact_id) : opts.label;
-    // v0.3.0 retired multi-stream: Win32 download backend is now curl.exe
-    // subprocess (single TCP per file, lets curl negotiate h1.1/h2/h3
-    // per-host); POSIX libcurl path was always single-stream too. The
-    // old `parallel_chunks` field on DownloadOptions is now ignored —
-    // single-stream is the only path. LUBAN_PARALLEL_CHUNKS env var is
-    // a no-op (mentioned in CLAUDE.md "obsoleted" note).
+    // Single-stream by design: v0.3.0 retired multi-stream because GitHub's
+    // per-IP throttle clobbered parallel TCP streams. v1.0.7's in-process
+    // libcurl backend forces HTTP/2 over the single connection (ALPN h2),
+    // which multiplexes inside one TCP and never trips that throttle. The
+    // old `parallel_chunks` field on DownloadOptions is ignored;
+    // LUBAN_PARALLEL_CHUNKS env var is a no-op.
     auto dl = download::download(std::string(url), archive_path, dlopts);
     if (!dl) {
         return std::unexpected("download failed (url=" + std::string(url) +

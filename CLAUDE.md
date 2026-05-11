@@ -139,8 +139,8 @@ src/                           # luban C++23 source
   win_path.cpp                 # HKCU PATH/env writeout
   proc.cpp                     # spawn with env merge
   hash.cpp                     # SHA256 verify
-  download.cpp                 # HTTPS GET + SHA via curl_subprocess (curl.exe, Win10 1803+)
-  curl_subprocess.cpp          # Win32 curl.exe subprocess driver
+  download.cpp                 # HTTPS GET + SHA via libcurl_backend (in-process libcurl)
+  libcurl_backend.cpp          # libcurl easy-interface driver (Schannel TLS, HTTP/2 forced)
   archive.cpp                  # ZIP extract w/ traversal guard
   progress.{hpp,cpp}           # 统一进度 UI
   perception.cpp               # introspection helpers
@@ -189,7 +189,11 @@ templates/help/                # 长 --help 文本，编进二进制（目前只
 
 third_party/                   # 单 header vendored libs + lua54/
   json.hpp miniz.{h,c} toml.hpp doctest.h + their LICENSEs
-  lua54/                       # 60 .c/.h（唯一多文件破例）
+  lua54/                       # 60 .c/.h（vendored 多文件破例 #1）
+
+# libcurl + nghttp2 不 vendored，CMake FetchContent 在 configure 时拉源码
+# （build/_deps/curl-src/ + nghttp2-src/）。锁 GIT_TAG curl-8_10_1 / v1.64.0。
+# 这是 vendored 多文件破例 #2 的等效物——但代码不入 repo，repo 保持小。
 
 docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements)
 .github/workflows/build.yml    # single windows MSVC build, tag→release
@@ -216,7 +220,11 @@ docs/DESIGN.md                 # 唯一设计文档 (§1–§11 MVP requirements
 11. **luban 是便利层，不接管 CMake**（DESIGN §2 #8）——生成的 CMake 内容
     脱离 luban 仍可用
 
-**放宽**：第三方 vendor 优先 single-header；Lua 5.4 是唯一多文件例外。
+**放宽**：第三方 vendor 优先 single-header。多文件依赖目前两处：
+1. Lua 5.4——vendored 到 `third_party/lua54/`（60 .c/.h）
+2. libcurl + nghttp2——CMake FetchContent 在 configure 时拉源码到
+   `build/_deps/`，不进 repo。Schannel-only TLS（无 OpenSSL vendor），
+   `HTTP_ONLY=ON`，`BUILD_SHARED_LIBS=OFF`——产物全静态链接，依旧守不变量 7。
 
 ## Common task recipes
 
@@ -367,8 +375,8 @@ a `v*.*.*` tag push.
 | `paths::{data,config,cache,state}_dir()`                                       | `src/paths.cpp`                   | XDG-resolved 4 homes                                                                                                                              |
 | `paths::xdg_bin_home()`                                                        | `src/paths.cpp`                   | `~/.local/bin/`（不变量 5）                                                                                                                            |
 | `proc::run(cmd, cwd, env_overrides)`                                           | `src/proc.cpp`                    | spawn with env merge                                                                                                                              |
-| `download::download(url, dest, opts)`                                          | `src/download.cpp`                | HTTPS GET + SHA（Win32 走 curl_subprocess.cpp，POSIX 走 libcurl）                                                                                      |
-| `curl_subprocess::download_to_file / fetch_text / head_content_length`         | `src/curl_subprocess.cpp`         | Win32 only — drives curl.exe via CreateProcessW，polling thread feeds `progress::Bar`                                                              |
+| `download::download(url, dest, opts)`                                          | `src/download.cpp`                | HTTPS GET + SHA（Win32 走 libcurl_backend.cpp 内嵌 libcurl，Schannel + HTTP/2 强制）                                                                  |
+| `libcurl_backend::download_to_file / fetch_text / head_content_length`         | `src/libcurl_backend.cpp`         | curl_easy_* + CURLOPT_XFERINFOFUNCTION 实时进度；CURLOPT_LOW_SPEED_LIMIT/TIME 当 stall watchdog                                                       |
 | `progress::Bar`                                                                | `src/progress.{hpp,cpp}`          | 统一进度 UI：`↓ fetch / ↻ extract / ✓` glyph + Bytes/Items unit + TTY auto-detect + LUBAN_PROGRESS env                                                 |
 | `archive::extract(zip, dest, on_progress)`                                     | `src/archive.cpp`                 | ZIP w/ traversal guard + 可选 progress cb                                                                                                           |
 | `hash::verify_file(path, spec)`                                                | `src/hash.cpp`                    | SHA256 校验                                                                                                                                         |

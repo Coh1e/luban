@@ -13,13 +13,14 @@
 #include <thread>
 #include <vector>
 
-// Win32 download backend lives in src/curl_subprocess.{hpp,cpp} — drives
-// curl.exe (Win10 1803+ baseline) instead of WinHTTP. v1.0.5+ dropped
-// the POSIX libcurl fallback (DESIGN §1 Windows-first). We still pull
-// in <windows.h> for GetTempFileNameW + MAX_PATH used below to
-// manufacture a tmp file path.
+// Win32 download backend lives in src/libcurl_backend.{hpp,cpp} — uses
+// in-process libcurl (FetchContent-built, Schannel, HTTP/2 forced).
+// v1.0.7 swapped this from the v0.3.0–v1.0.6 curl.exe subprocess driver
+// to lock the curl version, enforce HTTP/2 (CN/VN networks), and get
+// real-time progress callbacks. Still pull in <windows.h> for
+// GetTempFileNameW + MAX_PATH used to manufacture a tmp file path.
 #include <windows.h>
-#include "curl_subprocess.hpp"
+#include "libcurl_backend.hpp"
 
 #include "luban/version.hpp"
 
@@ -69,14 +70,15 @@ std::string apply_mirror(const std::string& url) {
 // @ 3.0 MiB/s" live, "✓ fetch 4.0 MiB in 1.3s @ 3.0 MiB/s" on done).
 
 // ---- Stall watchdog -------------------------------------------------------
-// Stall detection lives inside curl_subprocess::run_curl: a file-size-delta
-// polling thread terminates curl.exe if no growth for 15s after warmup.
+// Stall detection is libcurl-native now: CURLOPT_LOW_SPEED_LIMIT (1 KiB/s)
+// + CURLOPT_LOW_SPEED_TIME (15s) trip CURLE_OPERATION_TIMEDOUT, which
+// libcurl_backend::classify() narrows to ErrorKind::Stalled by checking
+// the realized download speed via getinfo.
 
-// Win32 backend used to live here as ~520 lines of WinHTTP code (StreamingSha256,
-// HttpHandle RAII, parse_url, do_request, head_info, download_range_to_file,
-// preallocate_file, download_chunked, enable_http2_on_session). All replaced
-// by curl_subprocess. The `download()` body below dispatches to it directly.
-// See git history for the deleted code.
+// The Win32 backend used to live here as ~520 lines of WinHTTP code, then
+// became a curl.exe subprocess driver (v0.3.0–v1.0.6), and now lives as
+// in-process libcurl (v1.0.7+). The `download()` body below dispatches
+// to libcurl_backend directly. See git history for the deleted code.
 
 // Common post-download finalization: verify hash + atomic rename to dest.
 // Both the chunked and single-stream branches need exactly this sequence
@@ -166,11 +168,12 @@ std::expected<DownloadResult, Error> download(
     // The bar's elapsed/rate counters are accurate end-to-end (start
     // before any I/O, finish on the last successful byte).
     //
-    // v0.3.0 — Win32 download path is a thin adapter over curl.exe.
-    // No HEAD pre-probe for chunked split (single curl stream is fine on
-    // GitHub's CDN); no streaming SHA (verify_and_promote re-reads, ~200ms
-    // per 50MB on SSD); no parallel_chunks branch (single stream
-    // intentionally — multi-stream tripped the per-IP throttle).
+    // v1.0.7 — Win32 download path is a thin adapter over libcurl.
+    // No chunked-split / parallel-streams branch (single stream
+    // intentionally — multi-stream tripped GitHub's per-IP throttle).
+    // No streaming SHA (verify_and_promote re-reads, ~200ms per 50 MB
+    // on SSD). HTTP/2 is forced on by libcurl_backend (ALPN h2 → falls
+    // back to h1.1 only if server refuses).
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
 
@@ -179,8 +182,9 @@ std::expected<DownloadResult, Error> download(
         : opts.label;
 
     // tmp file in dest's parent dir so cross-volume rename never bites.
-    // GetTempFileName creates a 0-byte placeholder; curl -C - writes to it
-    // and resumes from existing size on retry.
+    // GetTempFileName creates a 0-byte placeholder; libcurl_backend opens
+    // it in "ab" mode + CURLOPT_RESUME_FROM_LARGE when retrying with a
+    // non-empty partial.
     wchar_t tmp_buf[MAX_PATH * 2];
     std::wstring parent = dest.parent_path().wstring();
     std::wstring prefix = L".dl-";
@@ -188,14 +192,15 @@ std::expected<DownloadResult, Error> download(
         return std::unexpected(Error{ErrorKind::Io, "GetTempFileName failed"});
     }
     fs::path tmp = fs::path(tmp_buf);
-    // GetTempFileName already wrote a 0-byte file; -C - on first try reads
-    // 0, behaves like normal GET. Across retries the same tmp persists with
+    // GetTempFileName already wrote a 0-byte file; libcurl_backend checks
+    // file_size before setting RESUME_FROM_LARGE, so the first attempt
+    // behaves like a plain GET. Across retries the same tmp persists with
     // partial bytes for resume.
 
     // HEAD probe for Content-Length so the bar shows pct from the first
     // frame. Optional — nullopt → bar shows running count + rate.
     std::int64_t total = -1;
-    if (auto cl = luban::curl_subprocess::head_content_length(url,
+    if (auto cl = luban::libcurl_backend::head_content_length(url,
                                                               opts.timeout_seconds)) {
         total = *cl;
     }
@@ -206,47 +211,45 @@ std::expected<DownloadResult, Error> download(
     Error last_err{ErrorKind::Network, "no attempts"};
     int retries = std::max(1, opts.retries);
     for (int attempt = 1; attempt <= retries; ++attempt) {
-        luban::curl_subprocess::Options copts;
+        luban::libcurl_backend::Options copts;
         copts.connect_timeout_seconds = std::min(opts.timeout_seconds, 30);
         copts.max_time_seconds = std::max(900, opts.timeout_seconds * 2);
         copts.resume = true;
         copts.progress = &prog;
 
-        auto rc = luban::curl_subprocess::download_to_file(url, tmp, copts);
+        auto rc = luban::libcurl_backend::download_to_file(url, tmp, copts);
         if (rc) {
             prog.finish_done();
             // verify_and_promote re-reads tmp for SHA256 (no streaming hash
-            // on the subprocess path) — accepted cost, ~200ms / 50MB.
+            // on the libcurl path either) — accepted cost, ~200ms / 50MB.
             auto promoted = verify_and_promote(tmp, dest, opts.expected_hash, url);
             if (!promoted) return std::unexpected(promoted.error());
             return DownloadResult{*promoted, rc->bytes};
         }
 
-        // Translate curl_subprocess::ErrorKind → download::ErrorKind for
+        // Translate libcurl_backend::ErrorKind → download::ErrorKind for
         // the public API. retry decision lives here.
         const auto& e = rc.error();
         ErrorKind k = ErrorKind::Network;
         switch (e.kind) {
-            case luban::curl_subprocess::ErrorKind::HttpClient:
+            case luban::libcurl_backend::ErrorKind::HttpClient:
                 k = ErrorKind::HttpClient; break;
-            case luban::curl_subprocess::ErrorKind::HttpServer:
+            case luban::libcurl_backend::ErrorKind::HttpServer:
                 k = ErrorKind::HttpServer; break;
-            case luban::curl_subprocess::ErrorKind::Stalled:
-            case luban::curl_subprocess::ErrorKind::Network:
-            case luban::curl_subprocess::ErrorKind::SpawnFailed:
-            case luban::curl_subprocess::ErrorKind::NotFound:
+            case luban::libcurl_backend::ErrorKind::Stalled:
+            case luban::libcurl_backend::ErrorKind::Network:
                 k = ErrorKind::Network; break;
-            case luban::curl_subprocess::ErrorKind::Io:
+            case luban::libcurl_backend::ErrorKind::Io:
                 k = ErrorKind::Io; break;
         }
         last_err = Error{k, e.message};
         if (k == ErrorKind::HttpClient) {
             // 4xx — bail without retry. partial tmp already cleaned up
-            // by curl_subprocess. Don't print a misleading ✓ via finish_done.
+            // by libcurl_backend. Don't print a misleading ✓ via finish_done.
             prog.abandon();
             return std::unexpected(last_err);
         }
-        // Retryable: backoff. Tmp still on disk → -C - resumes next attempt.
+        // Retryable: backoff. Tmp still on disk → libcurl resumes next attempt.
         if (attempt < retries) {
             int wait = 1 << (attempt - 1);
             log::warnf("download attempt {} failed ({}); retry in {}s",
@@ -261,15 +264,15 @@ std::expected<DownloadResult, Error> download(
 
 std::expected<std::string, Error> fetch_text(const std::string& url_in, int timeout_seconds) {
     const std::string url = apply_mirror(url_in);
-    auto rc = luban::curl_subprocess::fetch_text(url, timeout_seconds);
+    auto rc = luban::libcurl_backend::fetch_text(url, timeout_seconds);
     if (!rc) {
         const auto& e = rc.error();
         ErrorKind k = ErrorKind::Network;
-        if (e.kind == luban::curl_subprocess::ErrorKind::HttpClient)
+        if (e.kind == luban::libcurl_backend::ErrorKind::HttpClient)
             k = ErrorKind::HttpClient;
-        else if (e.kind == luban::curl_subprocess::ErrorKind::HttpServer)
+        else if (e.kind == luban::libcurl_backend::ErrorKind::HttpServer)
             k = ErrorKind::HttpServer;
-        else if (e.kind == luban::curl_subprocess::ErrorKind::Io)
+        else if (e.kind == luban::libcurl_backend::ErrorKind::Io)
             k = ErrorKind::Io;
         return std::unexpected(Error{k, e.message});
     }
